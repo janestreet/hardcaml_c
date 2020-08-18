@@ -1,0 +1,2 @@
+(library (name hardcaml_c_test) (libraries core hardcaml hardcaml_c)
+ (preprocess (pps ppx_jane ppx_deriving_hardcaml)))
