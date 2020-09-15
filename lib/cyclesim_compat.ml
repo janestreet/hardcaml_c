@@ -188,6 +188,7 @@ module With_interface (I : Hardcaml.Interface.S) (O : Hardcaml.Interface.S) = st
         ?combinational_ops_database:_
         ?port_checks
         ?add_phantom_inputs
+        ?modify_outputs
         ?(combine_with_cyclesim = false)
         ?compiler_command
         create_fn
@@ -198,6 +199,7 @@ module With_interface (I : Hardcaml.Interface.S) (O : Hardcaml.Interface.S) = st
               create_options
               ?port_checks
               ?add_phantom_inputs
+              ?modify_outputs
               ~name:"simulator"
               create_fn
           in

@@ -15,6 +15,7 @@ module With_interface (I : Interface.S) (O : Interface.S) : sig
   val create
     : (?port_checks:Circuit.Port_checks.t
        -> ?add_phantom_inputs:bool
+       -> ?modify_outputs:(Signal.t list -> Signal.t list)
        -> ?combine_with_cyclesim:bool
        -> ?compiler_command:
          string
