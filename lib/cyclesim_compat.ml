@@ -74,21 +74,26 @@ let create_signal_map interesting_signals =
 ;;
 
 let get_internal_signals circuit ~is_internal_port =
-  Hardcaml.Signal_graph.filter (Circuit.signal_graph circuit) ~f:(fun s ->
-    (not (Circuit.is_input circuit s))
-    && (not (Circuit.is_output circuit s))
-    && (not (Signal.is_empty s))
-    && is_internal_port s)
+  match is_internal_port with
+  | None -> []
+  | Some is_internal_port ->
+    Hardcaml.Signal_graph.filter (Circuit.signal_graph circuit) ~f:(fun s ->
+      (not (Circuit.is_input circuit s))
+      && (not (Circuit.is_output circuit s))
+      && (not (Signal.is_empty s))
+      && is_internal_port s)
 ;;
 
 let create
-      ?(is_internal_port = fun _ -> false)
+      ?(config = Cyclesim.Config.default)
       ?(combine_with_cyclesim = false)
       ?compiler_command
       circuit
   =
   let circuit = Hardcaml.Dedup.deduplicate circuit in
-  let internal_signals = get_internal_signals circuit ~is_internal_port in
+  let internal_signals =
+    get_internal_signals circuit ~is_internal_port:config.is_internal_port
+  in
   if List.length internal_signals > 1000
   then
     fprintf
@@ -181,31 +186,15 @@ module With_interface (I : Hardcaml.Interface.S) (O : Hardcaml.Interface.S) = st
     Cyclesim.Private.coerce sim ~to_input ~to_output
   ;;
 
-  let create =
-    Circuit.with_create_options
-      (fun create_options
-        ?(is_internal_port = fun _ -> false)
-        ?combinational_ops_database:_
-        ?port_checks
-        ?add_phantom_inputs
-        ?modify_outputs
+  let create
+        ?config
+        ?circuit_config
         ?(combine_with_cyclesim = false)
         ?compiler_command
         create_fn
-        ->
-          let circuit =
-            Circuit.call_with_create_options
-              C.create_exn
-              create_options
-              ?port_checks
-              ?add_phantom_inputs
-              ?modify_outputs
-              ~name:"simulator"
-              create_fn
-          in
-          let sim =
-            create ~is_internal_port ~combine_with_cyclesim ?compiler_command circuit
-          in
-          coerce sim)
+    =
+    let circuit = C.create_exn ?config:circuit_config ~name:"simulator" create_fn in
+    let sim = create ?config ~combine_with_cyclesim ?compiler_command circuit in
+    coerce sim
   ;;
 end
