@@ -236,14 +236,14 @@ module Instance = struct
           (i * 8)
           (caml_bigstring_get64u t.memory_bigstring ((pos + i) * 8))
       done;
-      Constant.unsafe_of_bytes ~width:(Signal.width signal) dst |> Bits.of_constant
+      Constant.Raw.unsafe_of_bytes ~width:(Signal.width signal) dst |> Bits.of_constant
   ;;
 
   let write t signal bits =
     let signal_info = t.to_signal_info signal in
     (* Hardcaml_c assumes unused bits are set to zero, while in Hardcaml they can have
        arbitrary value. Mask them out. *)
-    let bits_bytes = Bits.to_constant bits |> Constant.unsafe_to_bytes in
+    let bits_bytes = Bits.to_constant bits |> Constant.Raw.unsafe_to_bytes in
     let pos = Codegen.word_offset signal_info in
     let size_words = Codegen.word_count signal_info in
     let width = Codegen.width signal_info in
