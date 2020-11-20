@@ -24,17 +24,13 @@ let%bench_fun "cyclesim circuit" =
 ;;
 
 let%bench_fun "hardcaml-c/tcc circuit" =
-  let sim =
-    Hardcaml_c.Cyclesim_compat.create ~compiler_command:"tcc" (benchmarked_circuit ())
-  in
+  let sim = Hardcaml_c.Cyclesim.create ~compiler_command:"tcc" (benchmarked_circuit ()) in
   fun () -> Cyclesim.cycle sim
 ;;
 
 let%bench_fun "hardcaml-c/'clang -O3' circuit" =
   let sim =
-    Hardcaml_c.Cyclesim_compat.create
-      ~compiler_command:"clang -O3"
-      (benchmarked_circuit ())
+    Hardcaml_c.Cyclesim.create ~compiler_command:"clang -O3" (benchmarked_circuit ())
   in
   fun () -> Cyclesim.cycle sim
 ;;
@@ -74,6 +70,6 @@ let many_inputs_and_outputs () =
 *)
 
 let%bench_fun "many inputs and outputs" =
-  let sim = Hardcaml_c.Cyclesim_compat.create (many_inputs_and_outputs ()) in
+  let sim = Hardcaml_c.Cyclesim.create (many_inputs_and_outputs ()) in
   fun () -> Cyclesim.cycle sim
 ;;

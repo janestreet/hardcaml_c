@@ -1,12 +1,14 @@
 open! Core
 open Hardcaml
 open Hardcaml_c
+module Cyclesim = Hardcaml.Cyclesim
+module C_cyclesim = Hardcaml_c.Cyclesim
 
 let%expect_test "no clock" =
   let open Hardcaml.Signal in
   let signal = of_string "1110" in
   let circuit = Circuit.create_exn ~name:"generated" [ output "out" signal ] in
-  let sim = Cyclesim_compat.create circuit ~combine_with_cyclesim:true in
+  let sim = C_cyclesim.create circuit ~combine_with_cyclesim:true in
   Cyclesim.cycle sim;
   let out_port = Cyclesim.out_port sim "out" in
   printf !"%{Bits}\n" !out_port;
@@ -121,7 +123,7 @@ let%expect_test "register" =
 
 let%expect_test "register eval" =
   let circuit = test_register_circuit () in
-  let sim = Cyclesim_compat.create circuit in
+  let sim = C_cyclesim.create circuit in
   let ena = Cyclesim.in_port sim "ena" in
   let output = Cyclesim.out_port sim "output" in
   ena := Bits.of_string "1";

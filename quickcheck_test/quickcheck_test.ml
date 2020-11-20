@@ -28,9 +28,7 @@ let gen_circuit_and_inputs =
 let%test_unit "cyclesim vs hardcaml-c" =
   Quickcheck.test ~trials:300 gen_circuit_and_inputs ~f:(fun (circuit, inputs) ->
     let sim =
-      Hardcaml_c.Cyclesim_compat.create
-        ?compiler_command:(Sys.getenv "HARDCAML_CC")
-        circuit
+      Hardcaml_c.Cyclesim.create ?compiler_command:(Sys.getenv "HARDCAML_CC") circuit
     in
     let my_out = cyclesim_eval inputs sim in
     let sim = Cyclesim.create circuit in
