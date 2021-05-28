@@ -1,5 +1,6 @@
 open Core
 open Hardcaml
+module Unix = Core_unix
 
 let signals_per_function = 1000
 
@@ -304,7 +305,7 @@ let add_function t body =
 ;;
 
 let start ?(compiler_command = "gcc -O0") t =
-  let dir = Filename.temp_dir "hardcaml-c" "" in
+  let dir = Filename_unix.temp_dir "hardcaml-c" "" in
   (let c_file = Out_channel.create (dir ^ "/eval.c") in
    let source = make_c_source t in
    Core.fprintf c_file "%s" source;
@@ -323,9 +324,9 @@ let start ?(compiler_command = "gcc -O0") t =
     ref (Dl.dlopen ~filename:(sprintf "%s/eval.so" dir) ~flags:[ Dl.RTLD_NOW ])
   in
   Gc.Expert.add_finalizer_exn eval_library (fun lib -> Dl.dlclose ~handle:!lib);
-  Core.Unix.unlink (dir ^ "/eval.c");
-  Core.Unix.unlink (dir ^ "/eval.so");
-  Core.Unix.rmdir dir;
+  Core_unix.unlink (dir ^ "/eval.c");
+  Core_unix.unlink (dir ^ "/eval.so");
+  Core_unix.rmdir dir;
   let memory = Ctypes.CArray.make Ctypes.char (t.total_words * Codegen.word_bytes) in
   let open Ctypes in
   let functions =
