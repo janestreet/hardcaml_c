@@ -1,3 +1,4 @@
 (library (name hardcaml_c_bench)
- (libraries core hardcaml hardcaml_c hardcaml_verilator hardcaml_test)
+ (libraries core_kernel.core hardcaml hardcaml_c hardcaml_verilator
+  hardcaml_test)
  (preprocess (pps ppx_jane ppx_deriving_hardcaml)))
