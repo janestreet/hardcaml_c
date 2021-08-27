@@ -169,11 +169,10 @@ let last_layer_of_nodes circuit =
     if not (Hash_set.mem in_last_layer (Signal.uid signal))
     then (
       Hash_set.add in_last_layer (Signal.uid signal);
-      if
-        not
-          (Signal.is_empty signal
-           || Signal.is_multiport_mem signal
-           || Signal.is_reg signal)
+      if not
+           (Signal.is_empty signal
+            || Signal.is_multiport_mem signal
+            || Signal.is_reg signal)
       then List.iter (c_scheduling_deps signal) ~f:visit_signal)
   in
   List.iter (Circuit.outputs circuit) ~f:visit_signal;
