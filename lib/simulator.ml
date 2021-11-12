@@ -230,27 +230,30 @@ module Instance = struct
     | _ ->
       let pos = Codegen.word_offset signal_info in
       let size_words = Codegen.word_count signal_info in
-      let dst = Bytes.create (size_words * 8) in
+      let dst = Bits.zero (Signal.width signal) in
+      let dst_underlying_repr = Bits.Expert.unsafe_underlying_repr dst in
+      let offset_for_data = Bits.Expert.offset_for_data in
       for i = 0 to size_words - 1 do
         caml_bytes_set64u
-          dst
-          (i * 8)
+          dst_underlying_repr
+          (offset_for_data + (i * 8))
           (caml_bigstring_get64u t.memory_bigstring ((pos + i) * 8))
       done;
-      Constant.Raw.unsafe_of_bytes ~width:(Signal.width signal) dst |> Bits.of_constant
+      dst
   ;;
 
   let write t signal bits =
     let signal_info = t.to_signal_info signal in
     (* Hardcaml_c assumes unused bits are set to zero, while in Hardcaml they can have
        arbitrary value. Mask them out. *)
-    let bits_bytes = Bits.to_constant bits |> Constant.Raw.unsafe_to_bytes in
+    let bits_underlying_repr = Bits.Expert.unsafe_underlying_repr bits in
+    let offset_for_data = Bits.Expert.offset_for_data in
     let pos = Codegen.word_offset signal_info in
     let size_words = Codegen.word_count signal_info in
     let width = Codegen.width signal_info in
     for i = 0 to size_words - 1 do
       let width_left = width - (i * Codegen.word_size) in
-      let value = caml_bytes_get64u bits_bytes (i * 8) in
+      let value = caml_bytes_get64u bits_underlying_repr (offset_for_data + (i * 8)) in
       let value =
         if width_left < Codegen.word_size
         then Int64.(value land ((Int64.one lsl width_left) - Int64.one))
