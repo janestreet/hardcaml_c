@@ -334,7 +334,7 @@ let start ?(compiler_command = "gcc -O0") t =
   let functions =
     List.mapi !(t.functions) ~f:(fun id _ ->
       let f =
-        Ctypes_foreign_threaded_flat.Foreign.foreign
+        Ctypes_foreign_flat.Foreign.foreign
           ~from:!eval_library
           (sprintf "f%d" id)
           (Ctypes.ptr Ctypes.char @-> returning void)
