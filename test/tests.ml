@@ -79,7 +79,7 @@ let test_register_circuit () =
   let clk = input "clk" 1 in
   let enable = input "ena" 1 in
   let reg_spec = Reg_spec.create () ~clock:clk in
-  let v = reg_fb ~enable ~w:5 reg_spec (fun s -> s +:. 3) in
+  let v = reg_fb ~enable ~width:5 reg_spec ~f:(fun s -> s +:. 3) in
   let circuit = Circuit.create_exn ~name:"test" [ output "output" v ] in
   circuit
 ;;
