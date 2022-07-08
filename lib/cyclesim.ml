@@ -50,13 +50,6 @@ let reset t =
   signals_to_refs t
 ;;
 
-let lookup_reg _t _uid = failwith "lookup_reg unsupported"
-
-let lookup_signal t uid =
-  let signal, (_ : Hardcaml.Signal.t) = Map.find_exn t.signals uid in
-  signal
-;;
-
 let make_port_list signal_map signals =
   List.concat_map signals ~f:(fun signal ->
     let bits_ref, _ = Map.find_exn signal_map (Signal.uid signal) in
@@ -132,6 +125,7 @@ let create
     ; run_reset
     }
   in
+  let lookup_unsupported _ = raise_s [%message "lookup unsupported in hardcaml C"] in
   let sim =
     Cyclesim.Private.create
       ~in_ports:(make_port_list t.signals (Circuit.inputs circuit))
@@ -143,9 +137,10 @@ let create
       ~cycle_before_clock_edge:(fun () -> cycle_before_clock_edge t)
       ~cycle_at_clock_edge:(fun () -> cycle_at_clock_edge t)
       ~cycle_after_clock_edge:(fun () -> cycle_after_clock_edge t)
-      ~lookup_signal:(lookup_signal t)
-      ~lookup_reg:(lookup_reg t)
+      ~lookup_reg:lookup_unsupported
+      ~lookup_mem:lookup_unsupported
       ~assertions:(Map.empty (module String))
+      ()
   in
   if combine_with_cyclesim
   then (
