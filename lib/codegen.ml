@@ -367,9 +367,7 @@ let compile_cat tgt signals =
     let first_word = bit_offset / word_size in
     List.range 0 (word_count signal + 1)
     |> List.concat_map ~f:(fun word_offset ->
-      let v =
-        get_word_at signal ((word_offset * word_size) - first_word_bit_offset)
-      in
+      let v = get_word_at signal ((word_offset * word_size) - first_word_bit_offset) in
       if first_word + word_offset < word_count tgt
       then [ get_nth_word tgt (first_word + word_offset), v ]
       else []))

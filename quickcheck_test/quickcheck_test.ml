@@ -44,9 +44,7 @@ let%test_unit "cyclesim vs hardcaml-c" =
       let c = Hardcaml_c.create circuit in
       Hardcaml_c.make_comb_code c |> String.concat ~sep:"\n" |> printf "comb: \n%s\n%!";
       Hardcaml_c.make_seq_code c |> String.concat ~sep:"\n" |> printf "seq: \n%s\n%!";
-      Hardcaml_c.make_reset_code c
-      |> String.concat ~sep:"\n"
-      |> printf "reset: \n%s\n%!;";
+      Hardcaml_c.make_reset_code c |> String.concat ~sep:"\n" |> printf "reset: \n%s\n%!;";
       raise_s
         [%message "invalid result" (my_out : Bits.t list) (expected_out : Bits.t list)]))
 ;;
