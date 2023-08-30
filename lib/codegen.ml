@@ -1,4 +1,3 @@
-
 open Core
 open Hardcaml
 
@@ -244,7 +243,7 @@ let compile_eq tgt a b =
   let value =
     List.range 0 (word_count a)
     |> List.map ~f:(fun offset ->
-      sprintf "(%s == %s)" (get_nth_word a offset) (get_nth_word b offset))
+         sprintf "(%s == %s)" (get_nth_word a offset) (get_nth_word b offset))
     |> String.concat ~sep:"&&"
   in
   sprintf "%s = (%s);" (get_nth_word tgt 0) value
@@ -367,19 +366,19 @@ let compile_cat tgt signals =
     let first_word = bit_offset / word_size in
     List.range 0 (word_count signal + 1)
     |> List.concat_map ~f:(fun word_offset ->
-      let v = get_word_at signal ((word_offset * word_size) - first_word_bit_offset) in
-      if first_word + word_offset < word_count tgt
-      then [ get_nth_word tgt (first_word + word_offset), v ]
-      else []))
+         let v = get_word_at signal ((word_offset * word_size) - first_word_bit_offset) in
+         if first_word + word_offset < word_count tgt
+         then [ get_nth_word tgt (first_word + word_offset), v ]
+         else []))
   |> String.Map.of_alist_multi
   |> Map.to_alist
   |> List.map ~f:(fun (target, values) ->
-    sprintf
-      "%s = %s;"
-      target
-      (match values with
-       | [] -> c_zero
-       | _ -> String.concat ~sep:" | " values))
+       sprintf
+         "%s = %s;"
+         target
+         (match values with
+          | [] -> c_zero
+          | _ -> String.concat ~sep:" | " values))
   |> String.concat ~sep:"\n"
 ;;
 
@@ -441,12 +440,12 @@ let compile_write_port memory _write_clock write_address write_enable write_data
 let compile_multiport_mem ~to_signal_info signal write_ports =
   Array.to_list write_ports
   |> List.map ~f:(fun { Signal.write_clock; write_address; write_enable; write_data } ->
-    compile_write_port
-      (to_signal_info signal)
-      (to_signal_info write_clock)
-      (to_signal_info write_address)
-      (to_signal_info write_enable)
-      (to_signal_info write_data))
+       compile_write_port
+         (to_signal_info signal)
+         (to_signal_info write_clock)
+         (to_signal_info write_address)
+         (to_signal_info write_enable)
+         (to_signal_info write_data))
   |> String.concat ~sep:"\n"
 ;;
 

@@ -93,7 +93,7 @@ let allocate_offsets interesting_signals circuit =
     let all_users_of_this_signal_are_in_same_section =
       Map.find_multi users (Signal.uid signal)
       |> List.for_all ~f:(fun user ->
-        Map.find_exn section_numbers (Signal.uid user) = my_section)
+           Map.find_exn section_numbers (Signal.uid user) = my_section)
     in
     all_users_of_this_signal_are_in_same_section
     && (not (Set.mem interesting_signals (Signal.uid signal)))
@@ -155,7 +155,7 @@ let cached_to_signal_info t =
 let make_comb_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
-    Codegen.compile_comb_signal ~to_signal_info:(to_signal_info t) signal)
+       Codegen.compile_comb_signal ~to_signal_info:(to_signal_info t) signal)
 ;;
 
 let last_layer_of_nodes circuit =
@@ -183,22 +183,22 @@ let make_comb_last_layer_code t =
   let last_layer = last_layer_of_nodes t.circuit in
   schedule_signals t.circuit
   |> List.filter_map ~f:(fun signal ->
-    if Set.mem last_layer (Signal.uid signal)
-    then Some (Codegen.compile_comb_signal ~to_signal_info:(to_signal_info t) signal)
-    else None)
+       if Set.mem last_layer (Signal.uid signal)
+       then Some (Codegen.compile_comb_signal ~to_signal_info:(to_signal_info t) signal)
+       else None)
 ;;
 
 let make_reset_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
-    Codegen.compile_reset_signal ~to_signal_info:(to_signal_info t) signal)
+       Codegen.compile_reset_signal ~to_signal_info:(to_signal_info t) signal)
   |> List.filter ~f:(fun l -> not (String.equal l ""))
 ;;
 
 let make_seq_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
-    Codegen.compile_seq_signal ~to_signal_info:(to_signal_info t) signal)
+       Codegen.compile_seq_signal ~to_signal_info:(to_signal_info t) signal)
   |> List.filter ~f:(fun l -> not (String.equal l ""))
 ;;
 

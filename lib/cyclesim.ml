@@ -1,7 +1,6 @@
 open Core
 open Hardcaml
 
-
 type t =
   { signals : (Bits.t ref * Signal.t) Signal.Uid_map.t
   ; input_signals : (Bits.t ref * Signal.t) list
@@ -55,7 +54,7 @@ let make_port_list signal_map signals =
     let bits_ref, _ = Map.find_exn signal_map (Signal.uid signal) in
     List.map (Signal.names signal) ~f:(fun name -> name, bits_ref))
   |> List.fold ~init:String.Map.empty ~f:(fun acc (name, bits_ref) ->
-    Map.set acc ~key:name ~data:bits_ref (* waveterm doesn't like duplicates *))
+       Map.set acc ~key:name ~data:bits_ref (* waveterm doesn't like duplicates *))
   |> Map.to_alist
 ;;
 
@@ -78,10 +77,10 @@ let get_internal_signals circuit ~is_internal_port =
 ;;
 
 let create
-      ?(config = Cyclesim.Config.default)
-      ?(combine_with_cyclesim = false)
-      ?compiler_command
-      circuit
+  ?(config = Cyclesim.Config.default)
+  ?(combine_with_cyclesim = false)
+  ?compiler_command
+  circuit
   =
   let circuit = Hardcaml.Dedup.deduplicate circuit in
   let internal_signals =
@@ -182,11 +181,11 @@ module With_interface (I : Hardcaml.Interface.S) (O : Hardcaml.Interface.S) = st
   ;;
 
   let create
-        ?config
-        ?circuit_config
-        ?(combine_with_cyclesim = false)
-        ?compiler_command
-        create_fn
+    ?config
+    ?circuit_config
+    ?(combine_with_cyclesim = false)
+    ?compiler_command
+    create_fn
     =
     let circuit = C.create_exn ?config:circuit_config ~name:"simulator" create_fn in
     let sim = create ?config ~combine_with_cyclesim ?compiler_command circuit in
