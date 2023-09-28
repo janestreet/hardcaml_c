@@ -26,7 +26,7 @@ let test_circuit () =
          (Constant.of_hex_string
             "123456789012345678"
             ~width:126
-            ~signedness:Constant.Signedness.Unsigned)
+            ~signedness:Signedness.Unsigned)
   in
   Circuit.create_exn ~name:"test" [ output "output" v ]
 ;;
@@ -68,7 +68,7 @@ let%expect_test "eval" =
   let instance = start t in
   Instance.read instance out
   |> Bits.to_constant
-  |> Constant.to_hex_string ~signedness:Constant.Signedness.Unsigned
+  |> Constant.to_hex_string ~signedness:Signedness.Unsigned
   |> printf !"out=%s";
   [%expect {|
     out=00000000000000000000000000000000 |}]

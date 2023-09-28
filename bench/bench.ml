@@ -38,7 +38,7 @@ let%bench_fun "hardcaml-c/'clang -O3' circuit" =
 let%bench_fun "verilator circuit" =
   let sim =
     Hardcaml_verilator.create
-      ~optimizations:false
+      ~verilator_config:{ Hardcaml_verilator.Config.default with optimization_level = O0 }
       ~clock_names:[ "clock" ]
       (benchmarked_circuit ())
   in

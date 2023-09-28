@@ -61,9 +61,7 @@ let c_zero = "0ull"
 let bits_to_c b =
   assert (Bits.width b <= 64);
   let hex =
-    b
-    |> Bits.to_constant
-    |> Constant.to_hex_string ~signedness:Constant.Signedness.Unsigned
+    b |> Bits.to_constant |> Constant.to_hex_string ~signedness:Signedness.Unsigned
   in
   sprintf "0x%sull" hex
 ;;
