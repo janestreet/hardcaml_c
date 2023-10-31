@@ -35,7 +35,6 @@ let signal_allocated_width signal =
 
 let c_scheduling_deps (s : Signal.t) =
   match s with
-  | Mem _ -> failwith "Mem unsupported"
   | Mem_read_port { memory; read_address; _ } -> [ read_address; memory ]
   | Reg _ -> []
   | Multiport_mem _ -> []
@@ -75,7 +74,7 @@ let allocate_offsets interesting_signals circuit =
   let section_numbers =
     List.mapi ordering ~f:(fun i signal ->
       let section =
-        if Signal.is_reg signal || Signal.is_multiport_mem signal
+        if Signal.is_reg signal || Signal.is_mem signal
         then -1 (* sequential elements are in separate functions *)
         else i / signals_per_function
       in
@@ -99,7 +98,7 @@ let allocate_offsets interesting_signals circuit =
     && (not (Set.mem interesting_signals (Signal.uid signal)))
     && Signal.width signal <= Codegen.word_size
     && (not (Signal.is_reg signal))
-    && not (Signal.is_multiport_mem signal)
+    && not (Signal.is_mem signal)
   in
   let local_counter = ref 0 in
   List.fold
@@ -169,10 +168,7 @@ let last_layer_of_nodes circuit =
     if not (Hash_set.mem in_last_layer (Signal.uid signal))
     then (
       Hash_set.add in_last_layer (Signal.uid signal);
-      if not
-           (Signal.is_empty signal
-            || Signal.is_multiport_mem signal
-            || Signal.is_reg signal)
+      if not (Signal.is_empty signal || Signal.is_mem signal || Signal.is_reg signal)
       then List.iter (c_scheduling_deps signal) ~f:visit_signal)
   in
   List.iter (Circuit.outputs circuit) ~f:visit_signal;
@@ -240,6 +236,23 @@ module Instance = struct
           (caml_bigstring_get64u t.memory_bigstring ((pos + i) * 8))
       done;
       dst
+  ;;
+
+  let read_mutable t signal dst =
+    let signal_info = t.to_signal_info signal in
+    match signal_info with
+    | Const c -> Bits.Mutable.copy_bits ~src:c ~dst
+    | _ ->
+      let pos = Codegen.word_offset signal_info in
+      let size_words = Codegen.word_count signal_info in
+      let dst_underlying_repr = (dst :> Bytes.t) in
+      let offset_for_data = Bits.Expert.offset_for_data in
+      for i = 0 to size_words - 1 do
+        caml_bytes_set64u
+          dst_underlying_repr
+          (offset_for_data + (i * 8))
+          (caml_bigstring_get64u t.memory_bigstring ((pos + i) * 8))
+      done
   ;;
 
   let write t signal bits =

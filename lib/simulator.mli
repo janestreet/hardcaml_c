@@ -11,6 +11,9 @@ module Instance : sig
 
   (** Read value from simulator instance memory. *)
   val read : t -> Signal.t -> Bits.t
+
+  (** Read mutable value from simulator instance memory. *)
+  val read_mutable : t -> Signal.t -> Bits.Mutable.t -> unit
 end
 
 (** Create a new simulator for a given circuit.

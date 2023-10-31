@@ -513,7 +513,6 @@ let compile_comb_signal ~to_signal_info signal =
         let length = high - low + 1 in
         compile_select tgt d offset length
       | Reg _ -> compile_copy_from_prev ~tgt tgt
-      | Mem _ -> raise_s [%message "Mem signals are unsupported" (signal : Signal.t)]
       | Multiport_mem _ -> ""
       | Mem_read_port { memory; read_address; _ } ->
         compile_mem_read_port tgt (to_signal_info memory) (to_signal_info read_address)
