@@ -3,7 +3,7 @@ open Hardcaml
 
 let benchmarked_circuit () =
   Hardcaml_test.Generator.gen_circuit ~allow_inputs:false ~depth:9
-  |> Quickcheck.Generator.generate ~size:1000 ~random:(Splittable_random.State.of_int 42)
+  |> Quickcheck.Generator.generate ~size:1000 ~random:(Splittable_random.of_int 42)
 ;;
 
 (*
