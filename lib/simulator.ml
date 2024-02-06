@@ -6,41 +6,45 @@ let signals_per_function = 1000
 
 type t =
   { total_words : int
-  ; offsets : [ `Global of int | `Local of int ] Signal.Uid_map.t
+  ; offsets : [ `Global of int | `Local of int ] Signal.Type.Uid_map.t
   ; circuit : Circuit.t
   ; functions : string list ref
   }
 
 let signal_allocated_width signal =
   match signal with
-  | Signal.Multiport_mem { size; _ } ->
+  | Signal.Type.Multiport_mem { size; _ } ->
     if Signal.width signal <= 8
     then (size + Codegen.word_bytes - 1) / Codegen.word_bytes
     else Codegen.width_to_word_count (Signal.width signal) * size
-  | Signal.Const _ ->
+  | Const _ ->
     (* only optimize out small constants to simplify codegen *)
     if Signal.width signal <= Codegen.word_size
     then 0
     else Codegen.width_to_word_count (Signal.width signal)
-  | Signal.Wire { driver; _ } ->
+  | Wire { driver; _ } ->
     (* empty wires are inputs, other wires can be always eliminated *)
     if Signal.is_empty !driver
     then Codegen.width_to_word_count (Signal.width signal)
     else 0
-  | Signal.Reg _ ->
+  | Reg _ ->
     (* registers need to keep a copy of the input signal from the previous cycle *)
     2 * Codegen.width_to_word_count (Signal.width signal)
   | _ -> Codegen.width_to_word_count (Signal.width signal)
 ;;
 
-let c_scheduling_deps (s : Signal.t) =
-  match s with
-  | Mem_read_port { memory; read_address; _ } -> [ read_address; memory ]
-  | Reg _ -> []
-  | Multiport_mem _ -> []
-  | Empty | Const _ | Op2 _ | Mux _ | Not _ | Cat _ | Wire _ | Select _ | Inst _ ->
-    Signal.deps s
-;;
+module C_scheduling_deps = Signal.Type.Make_deps (struct
+  let fold (t : Signal.t) ~init ~f =
+    match t with
+    | Mem_read_port { memory; read_address; _ } ->
+      let init = f init read_address in
+      f init memory
+    | Reg _ -> init
+    | Multiport_mem _ -> init
+    | Empty | Const _ | Op2 _ | Mux _ | Not _ | Cat _ | Wire _ | Select _ | Inst _ ->
+      Signal.Type.Deps.fold t ~init ~f
+  ;;
+end)
 
 let schedule_signals circuit =
   (* Topologically sort signals. This is similar to Signal_graph.topological_sort, but
@@ -53,8 +57,8 @@ let schedule_signals circuit =
     if not (Hash_set.mem visited (Signal.uid signal))
     then (
       Hash_set.add visited (Signal.uid signal);
-      List.iter (Signal.deps signal) ~f:(Queue.enqueue queue);
-      List.iter (c_scheduling_deps signal) ~f:visit;
+      Signal.Type.Deps.iter signal ~f:(Queue.enqueue queue);
+      (C_scheduling_deps.iter signal) ~f:visit;
       Queue.enqueue result signal)
   in
   while not (Queue.is_empty queue) do
@@ -74,7 +78,7 @@ let allocate_offsets interesting_signals circuit =
   let section_numbers =
     List.mapi ordering ~f:(fun i signal ->
       let section =
-        if Signal.is_reg signal || Signal.is_mem signal
+        if Signal.Type.is_reg signal || Signal.Type.is_mem signal
         then -1 (* sequential elements are in separate functions *)
         else i / signals_per_function
       in
@@ -83,7 +87,7 @@ let allocate_offsets interesting_signals circuit =
   in
   let users =
     List.concat_map ordering ~f:(fun signal ->
-      List.map (Signal.deps signal) ~f:(fun d -> Signal.uid (unwrap_wire d), signal))
+      Signal.Type.Deps.rev_map signal ~f:(fun d -> Signal.uid (unwrap_wire d), signal))
     |> Map.of_alist_multi (module Signal.Uid)
   in
   (* can the signal be allocated as a local function variable? *)
@@ -97,8 +101,8 @@ let allocate_offsets interesting_signals circuit =
     all_users_of_this_signal_are_in_same_section
     && (not (Set.mem interesting_signals (Signal.uid signal)))
     && Signal.width signal <= Codegen.word_size
-    && (not (Signal.is_reg signal))
-    && not (Signal.is_mem signal)
+    && (not (Signal.Type.is_reg signal))
+    && not (Signal.Type.is_mem signal)
   in
   let local_counter = ref 0 in
   List.fold
@@ -131,9 +135,9 @@ let rec to_signal_info t signal =
   let index = Map.find_exn t.offsets (Signal.uid signal) in
   let normal = Codegen.Normal { Codegen.width = Signal.width signal; index } in
   match signal with
-  | Signal.Const { constant; _ } ->
+  | Signal.Type.Const { constant; _ } ->
     if Bits.width constant <= 64 then Codegen.Const constant else normal
-  | Signal.Wire { driver; _ } ->
+  | Wire { driver; _ } ->
     if Signal.is_empty !driver
     then normal
     else (
@@ -168,8 +172,11 @@ let last_layer_of_nodes circuit =
     if not (Hash_set.mem in_last_layer (Signal.uid signal))
     then (
       Hash_set.add in_last_layer (Signal.uid signal);
-      if not (Signal.is_empty signal || Signal.is_mem signal || Signal.is_reg signal)
-      then List.iter (c_scheduling_deps signal) ~f:visit_signal)
+      if not
+           (Signal.is_empty signal
+            || Signal.Type.is_mem signal
+            || Signal.Type.is_reg signal)
+      then C_scheduling_deps.iter signal ~f:visit_signal)
   in
   List.iter (Circuit.outputs circuit) ~f:visit_signal;
   Hash_set.to_list in_last_layer |> Set.of_list (module Signal.Uid)

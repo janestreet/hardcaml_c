@@ -146,7 +146,7 @@ let test_multiport_memory_circuit () =
     multiport_memory
       12
       ~write_ports:
-        [| { Signal.write_clock = clk
+        [| { Write_port.write_clock = clk
            ; write_address = of_string "0011"
            ; write_data = of_string "1110"
            ; write_enable = of_string "1"
@@ -166,14 +166,14 @@ let%expect_test "multiport memory" =
     {|
     // Signal Const[id:3 bits:4 names: deps:] = 0001
 
-    // Signal Multiport_mem[id:7 bits:4 names: deps:3,1,4,5,6]
+    // Signal Multiport_mem[id:7 bits:4 names: deps:1,4,5,6]
 
     // Signal Mem_read_port[id:8 bits:4 names: deps:3,7]
     memory[2] = ((uint8_t*)(&memory[0]))[0x1ull];
     // Signal Wire[id:2 bits:4 names:output deps:8] -> 8
 
     // Signal Empty
-    uint64_t local_2;
+    uint64_t local_3;
 
     // Signal Wire[id:1 bits:1 names:clk deps:0] -> 0
     // memory[3] = empty wire

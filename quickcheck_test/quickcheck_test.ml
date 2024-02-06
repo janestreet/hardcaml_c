@@ -31,11 +31,7 @@ let%test_unit "cyclesim vs hardcaml-c" =
       Hardcaml_c.Cyclesim.create ?compiler_command:(Sys.getenv "HARDCAML_CC") circuit
     in
     let my_out = cyclesim_eval inputs sim in
-    let sim =
-      Cyclesim.create
-        ~config:{ Cyclesim.Config.default with compute_digest = true }
-        circuit
-    in
+    let sim = Cyclesim.create circuit in
     let expected_out = cyclesim_eval inputs sim in
     if not ([%equal: Bits.t list] my_out expected_out)
     then (

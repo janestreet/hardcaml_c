@@ -1,4 +1,7 @@
-(library (name hardcaml_c) (public_name hardcaml_c)
+(library
+ (name hardcaml_c)
+ (public_name hardcaml_c)
  (libraries core core_unix ctypes ctypes.foreign core_unix.filename_unix
-  hardcaml)
- (preprocess (pps ppx_jane ppx_hardcaml)))
+   hardcaml)
+ (preprocess
+  (pps ppx_jane ppx_hardcaml)))

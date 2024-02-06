@@ -2,7 +2,7 @@ open Core
 open Hardcaml
 
 type t =
-  { signals : (Bits.t ref * Signal.t) Signal.Uid_map.t
+  { signals : (Bits.t ref * Signal.t) Signal.Type.Uid_map.t
   ; input_signals : (Bits.t ref * Signal.t) list
   ; output_signals : (Bits.t ref * Signal.t) list
   ; internal_signals : (Bits.Mutable.t * Signal.t) list
@@ -88,7 +88,7 @@ let create
   let traced =
     Cyclesim.Private.Traced_nodes.create ~is_internal_port:config.is_internal_port circuit
   in
-  let internal_signals = List.map traced ~f:(fun t -> t.signal) in
+  let internal_signals = List.map traced.internal_signals ~f:(fun t -> t.signal) in
   if List.length internal_signals > 1000
   then
     fprintf
@@ -131,8 +131,9 @@ let create
     ; run_reset
     }
   in
-  let lookup signal =
-    Map.find internal_signals_map (Signal.uid signal) |> Option.map ~f:fst
+  let lookup_node (traced : Cyclesim.Traced.internal_signal) =
+    Map.find internal_signals_map (Signal.uid traced.signal)
+    |> Option.map ~f:(fun (bits, _) -> Cyclesim.Node.create_from_bits_mutable bits)
   in
   let lookup_unsupported _ = raise_s [%message "lookup unsupported in hardcaml C"] in
   let sim =
@@ -146,10 +147,9 @@ let create
       ~cycle_at_clock_edge:(fun () -> cycle_at_clock_edge t)
       ~cycle_after_clock_edge:(fun () -> cycle_after_clock_edge t)
       ~traced
-      ~lookup
+      ~lookup_node
       ~lookup_reg:lookup_unsupported
       ~lookup_mem:lookup_unsupported
-      ~assertions:(Map.empty (module String))
       ()
   in
   if combine_with_cyclesim

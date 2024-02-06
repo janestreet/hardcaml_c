@@ -381,7 +381,7 @@ let compile_cat tgt signals =
 ;;
 
 let compile_reg ~to_signal_info signal ~source reg =
-  let { Signal.reg_clock = _
+  let { Reg_spec.reg_clock = _
       ; reg_clock_edge = _
       ; (* reset is supported by compile_reset_signal *)
         reg_reset = _
@@ -437,7 +437,8 @@ let compile_write_port memory _write_clock write_address write_enable write_data
 
 let compile_multiport_mem ~to_signal_info signal write_ports =
   Array.to_list write_ports
-  |> List.map ~f:(fun { Signal.write_clock; write_address; write_enable; write_data } ->
+  |> List.map
+       ~f:(fun { Write_port.write_clock; write_address; write_enable; write_data } ->
        compile_write_port
          (to_signal_info signal)
          (to_signal_info write_clock)
@@ -466,7 +467,6 @@ let compile_mem_read_port tgt memory address =
 ;;
 
 let compile_comb_signal ~to_signal_info signal =
-  let get_dep num = to_signal_info (List.nth_exn (Signal.deps signal) num) in
   let tgt = to_signal_info signal in
   let code =
     if is_virtual tgt
@@ -501,8 +501,8 @@ let compile_comb_signal ~to_signal_info signal =
          | Signal_lt -> op2 compile_lt)
           arg_a
           arg_b
-      | Wire _ ->
-        let src = get_dep 0 in
+      | Wire { driver; _ } ->
+        let src = to_signal_info !driver in
         let tgt = tgt in
         if width src <> 0
         then compile_copy ~tgt src
