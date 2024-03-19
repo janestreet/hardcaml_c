@@ -56,7 +56,8 @@ let%expect_test "simple" =
     // Signal Op[id:7 bits:126 names: deps:5,6] = or
     memory[5] = memory[1] | memory[3];
     memory[6] = memory[2] | memory[4];
-    // Signal Wire[id:2 bits:126 names:output deps:7] -> 7 |}];
+    // Signal Wire[id:2 bits:126 names:output deps:7] -> 7
+    |}];
   make_seq_code t |> String.concat ~sep:"\n" |> print_endline;
   [%expect {| |}]
 ;;
@@ -70,8 +71,7 @@ let%expect_test "eval" =
   |> Bits.to_constant
   |> Constant.to_hex_string ~signedness:Signedness.Unsigned
   |> printf !"out=%s";
-  [%expect {|
-    out=00000000000000000000000000000000 |}]
+  [%expect {| out=00000000000000000000000000000000 |}]
 ;;
 
 let test_register_circuit () =
@@ -109,16 +109,17 @@ let%expect_test "register" =
     // Signal Const[id:6 bits:5 names: deps:] = 00000
 
     // Signal Wire[id:1 bits:1 names:ena deps:0] -> 0
-    // memory[4] = empty wire |}];
+    // memory[4] = empty wire
+    |}];
   make_comb_last_layer_code t |> String.concat ~sep:"\n" |> print_endline;
   [%expect
     {|
     // Signal Reg[id:7 bits:5 names: deps:3,2,0,5,0,6,1]
     memory[0] = memory[1];
-    // Signal Wire[id:4 bits:5 names:output deps:7] -> 7 |}];
+    // Signal Wire[id:4 bits:5 names:output deps:7] -> 7
+    |}];
   make_seq_code t |> String.concat ~sep:"\n" |> print_endline;
-  [%expect {|
-    if (memory[4] == 1) { memory[1] = memory[2]; } |}]
+  [%expect {| if (memory[4] == 1) { memory[1] = memory[2]; } |}]
 ;;
 
 let%expect_test "register eval" =
@@ -136,7 +137,8 @@ let%expect_test "register eval" =
   [%expect {|
     00011
     00110
-    01001 |}]
+    01001
+    |}]
 ;;
 
 let test_multiport_memory_circuit () =
@@ -181,9 +183,9 @@ let%expect_test "multiport memory" =
 
     // Signal Const[id:5 bits:4 names: deps:] = 1110
 
-    // Signal Const[id:6 bits:1 names: deps:] = 1 |}];
+    // Signal Const[id:6 bits:1 names: deps:] = 1
+    |}];
   make_seq_code t |> String.concat ~sep:"\n" |> print_endline;
   [%expect
-    {|
-    if (0x1ull == 1) { ((uint8_t*)(&memory[0]))[0x3ull] = (uint8_t)(0xeull); } |}]
+    {| if (0x1ull == 1) { ((uint8_t*)(&memory[0]))[0x3ull] = (uint8_t)(0xeull); } |}]
 ;;

@@ -277,7 +277,8 @@ let%expect_test "select" =
   [%expect
     {|
     memory[2000] = ((memory[1000] >> 10) | (memory[1001] << 54)) & 0xffffffffffffffffull;
-    memory[2001] = ((memory[1001] >> 10) | (memory[1002] << 54)) & 0xffffffffffffffull; |}]
+    memory[2001] = ((memory[1001] >> 10) | (memory[1002] << 54)) & 0xffffffffffffffull;
+    |}]
 ;;
 
 let compile_copy_to_address (dst_address : string) src =
@@ -329,8 +330,7 @@ let%expect_test "mux_branchless" =
     ]
   |> printf "%s\n";
   [%expect
-    {|
-    memory[2000] = (0x0ull & (-(memory[100] == 0))) | (0x1ull & (-(memory[100] == 1))) | (0x2ull & (-(memory[100] == 2))); |}]
+    {| memory[2000] = (0x0ull & (-(memory[100] == 0))) | (0x1ull & (-(memory[100] == 1))) | (0x2ull & (-(memory[100] == 2))); |}]
 ;;
 
 let compile_mux_two tgt selector signals =
