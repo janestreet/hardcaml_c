@@ -68,7 +68,7 @@ let bits_to_c b =
 
 let get_bits_nth_word b offset =
   let hi = Int.min (Bits.width b - 1) (((offset + 1) * word_size) - 1) in
-  let data = Bits.select b hi (offset * word_size) in
+  let data = b.Bits.:[hi, offset * word_size] in
   bits_to_c data
 ;;
 
@@ -211,6 +211,10 @@ let compile_mulu tgt a b =
 let compile_muls tgt a b = compile_long_mul "muls" tgt a b
 let multiline count f = List.range 0 count |> List.map ~f |> String.concat ~sep:"\n"
 
+let multiline' count f =
+  List.range 0 count |> List.concat_map ~f |> String.concat ~sep:"\n"
+;;
+
 let compile_const ~tgt b =
   multiline (word_count tgt) (fun offset ->
     sprintf "%s = %s;" (get_nth_word tgt offset) (get_bits_nth_word b offset))
@@ -241,7 +245,7 @@ let compile_eq tgt a b =
   let value =
     List.range 0 (word_count a)
     |> List.map ~f:(fun offset ->
-         sprintf "(%s == %s)" (get_nth_word a offset) (get_nth_word b offset))
+      sprintf "(%s == %s)" (get_nth_word a offset) (get_nth_word b offset))
     |> String.concat ~sep:"&&"
   in
   sprintf "%s = (%s);" (get_nth_word tgt 0) value
@@ -306,18 +310,29 @@ let compile_copy_to_prev ~tgt a =
     sprintf "%s = %s;" (get_nth_word_prev tgt offset) (get_nth_word a offset))
 ;;
 
-let compile_mux_branchless tgt selector signals =
-  multiline (word_count tgt) (fun offset ->
-    sprintf
-      "%s = %s;"
-      (get_nth_word tgt offset)
-      (List.mapi signals ~f:(fun i signal ->
-         sprintf
-           "(%s & (-(%s == %d)))"
-           (get_nth_word signal offset)
-           (get_nth_word selector 0)
-           i)
-       |> String.concat ~sep:" | "))
+let compile_mux_branchless ?(chunk_size = 1000) tgt selector signals =
+  multiline' (word_count tgt) (fun offset ->
+    let target = get_nth_word tgt offset in
+    let rec traverse idx l =
+      match List.split_n l chunk_size with
+      | [], _ -> []
+      | start, next ->
+        let s =
+          sprintf
+            "%s |= %s;"
+            target
+            (List.mapi start ~f:(fun i signal ->
+               let i = idx + i in
+               sprintf
+                 "(%s & (-(%s == %d)))"
+                 (get_nth_word signal offset)
+                 (get_nth_word selector 0)
+                 i)
+             |> String.concat ~sep:" | ")
+        in
+        s :: traverse (idx + chunk_size) next
+    in
+    sprintf "%s = 0;" target :: traverse 0 signals)
 ;;
 
 let%expect_test "mux_branchless" =
@@ -330,7 +345,25 @@ let%expect_test "mux_branchless" =
     ]
   |> printf "%s\n";
   [%expect
-    {| memory[2000] = (0x0ull & (-(memory[100] == 0))) | (0x1ull & (-(memory[100] == 1))) | (0x2ull & (-(memory[100] == 2))); |}]
+    {|
+    memory[2000] = 0;
+    memory[2000] |= (0x0ull & (-(memory[100] == 0))) | (0x1ull & (-(memory[100] == 1))) | (0x2ull & (-(memory[100] == 2)));
+    |}];
+  compile_mux_branchless
+    ~chunk_size:2
+    (Normal { index = `Global 2000; width = 2 })
+    (Normal { index = `Global 100; width = 4 })
+    [ Const (Bits.of_string "00")
+    ; Const (Bits.of_string "01")
+    ; Const (Bits.of_string "10")
+    ]
+  |> printf "%s\n";
+  [%expect
+    {|
+    memory[2000] = 0;
+    memory[2000] |= (0x0ull & (-(memory[100] == 0))) | (0x1ull & (-(memory[100] == 1)));
+    memory[2000] |= (0x2ull & (-(memory[100] == 2)));
+    |}]
 ;;
 
 let compile_mux_two tgt selector signals =
@@ -364,19 +397,19 @@ let compile_cat tgt signals =
     let first_word = bit_offset / word_size in
     List.range 0 (word_count signal + 1)
     |> List.concat_map ~f:(fun word_offset ->
-         let v = get_word_at signal ((word_offset * word_size) - first_word_bit_offset) in
-         if first_word + word_offset < word_count tgt
-         then [ get_nth_word tgt (first_word + word_offset), v ]
-         else []))
+      let v = get_word_at signal ((word_offset * word_size) - first_word_bit_offset) in
+      if first_word + word_offset < word_count tgt
+      then [ get_nth_word tgt (first_word + word_offset), v ]
+      else []))
   |> String.Map.of_alist_multi
   |> Map.to_alist
   |> List.map ~f:(fun (target, values) ->
-       sprintf
-         "%s = %s;"
-         target
-         (match values with
-          | [] -> c_zero
-          | _ -> String.concat ~sep:" | " values))
+    sprintf
+      "%s = %s;"
+      target
+      (match values with
+       | [] -> c_zero
+       | _ -> String.concat ~sep:" | " values))
   |> String.concat ~sep:"\n"
 ;;
 
@@ -439,12 +472,12 @@ let compile_multiport_mem ~to_signal_info signal write_ports =
   Array.to_list write_ports
   |> List.map
        ~f:(fun { Write_port.write_clock; write_address; write_enable; write_data } ->
-       compile_write_port
-         (to_signal_info signal)
-         (to_signal_info write_clock)
-         (to_signal_info write_address)
-         (to_signal_info write_enable)
-         (to_signal_info write_data))
+         compile_write_port
+           (to_signal_info signal)
+           (to_signal_info write_clock)
+           (to_signal_info write_address)
+           (to_signal_info write_enable)
+           (to_signal_info write_data))
   |> String.concat ~sep:"\n"
 ;;
 

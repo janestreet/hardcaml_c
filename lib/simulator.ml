@@ -34,17 +34,17 @@ let signal_allocated_width signal =
 ;;
 
 module C_scheduling_deps = Signal.Type.Make_deps (struct
-  let fold (t : Signal.t) ~init ~f =
-    match t with
-    | Mem_read_port { memory; read_address; _ } ->
-      let init = f init read_address in
-      f init memory
-    | Reg _ -> init
-    | Multiport_mem _ -> init
-    | Empty | Const _ | Op2 _ | Mux _ | Not _ | Cat _ | Wire _ | Select _ | Inst _ ->
-      Signal.Type.Deps.fold t ~init ~f
-  ;;
-end)
+    let fold (t : Signal.t) ~init ~f =
+      match t with
+      | Mem_read_port { memory; read_address; _ } ->
+        let init = f init read_address in
+        f init memory
+      | Reg _ -> init
+      | Multiport_mem _ -> init
+      | Empty | Const _ | Op2 _ | Mux _ | Not _ | Cat _ | Wire _ | Select _ | Inst _ ->
+        Signal.Type.Deps.fold t ~init ~f
+    ;;
+  end)
 
 let schedule_signals circuit =
   (* Topologically sort signals. This is similar to Signal_graph.topological_sort, but
@@ -96,7 +96,7 @@ let allocate_offsets interesting_signals circuit =
     let all_users_of_this_signal_are_in_same_section =
       Map.find_multi users (Signal.uid signal)
       |> List.for_all ~f:(fun user ->
-           Map.find_exn section_numbers (Signal.uid user) = my_section)
+        Map.find_exn section_numbers (Signal.uid user) = my_section)
     in
     all_users_of_this_signal_are_in_same_section
     && (not (Set.mem interesting_signals (Signal.uid signal)))
@@ -158,7 +158,7 @@ let cached_to_signal_info t =
 let make_comb_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
-       Codegen.compile_comb_signal ~to_signal_info:(to_signal_info t) signal)
+    Codegen.compile_comb_signal ~to_signal_info:(to_signal_info t) signal)
 ;;
 
 let last_layer_of_nodes circuit =
@@ -186,22 +186,22 @@ let make_comb_last_layer_code t =
   let last_layer = last_layer_of_nodes t.circuit in
   schedule_signals t.circuit
   |> List.filter_map ~f:(fun signal ->
-       if Set.mem last_layer (Signal.uid signal)
-       then Some (Codegen.compile_comb_signal ~to_signal_info:(to_signal_info t) signal)
-       else None)
+    if Set.mem last_layer (Signal.uid signal)
+    then Some (Codegen.compile_comb_signal ~to_signal_info:(to_signal_info t) signal)
+    else None)
 ;;
 
 let make_reset_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
-       Codegen.compile_reset_signal ~to_signal_info:(to_signal_info t) signal)
+    Codegen.compile_reset_signal ~to_signal_info:(to_signal_info t) signal)
   |> List.filter ~f:(fun l -> not (String.equal l ""))
 ;;
 
 let make_seq_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
-       Codegen.compile_seq_signal ~to_signal_info:(to_signal_info t) signal)
+    Codegen.compile_seq_signal ~to_signal_info:(to_signal_info t) signal)
   |> List.filter ~f:(fun l -> not (String.equal l ""))
 ;;
 
@@ -308,11 +308,15 @@ let format_function name lines =
     List.mapi blocks ~f:(fun i _ -> sprintf "%s_%d(memory);" name i)
     |> String.concat ~sep:"\n  "
   in
-  sprintf {|
+  sprintf
+    {|
 %s
 void %s(uint64_t* memory) {
   %s
-} |} bodies name footer
+} |}
+    bodies
+    name
+    footer
 ;;
 
 let make_c_source t =

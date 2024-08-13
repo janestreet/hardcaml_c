@@ -124,20 +124,22 @@ let%expect_test "register" =
 
 let%expect_test "register eval" =
   let circuit = test_register_circuit () in
-  let sim = C_cyclesim.create circuit in
+  let sim = C_cyclesim.create ~combine_with_cyclesim:true circuit in
   let ena = Cyclesim.in_port sim "ena" in
-  let output = Cyclesim.out_port sim "output" in
+  let output_before = Cyclesim.out_port ~clock_edge:Before sim "output" in
+  let output_after = Cyclesim.out_port ~clock_edge:After sim "output" in
   ena := Bits.of_string "1";
   Cyclesim.cycle sim;
-  printf !"%{Bits}\n" !output;
+  printf !"%{Bits} %{Bits}\n" !output_before !output_after;
   Cyclesim.cycle sim;
-  printf !"%{Bits}\n" !output;
+  printf !"%{Bits} %{Bits}\n" !output_before !output_after;
   Cyclesim.cycle sim;
-  printf !"%{Bits}\n" !output;
-  [%expect {|
-    00011
-    00110
-    01001
+  printf !"%{Bits} %{Bits}\n" !output_before !output_after;
+  [%expect
+    {|
+    00000 00011
+    00011 00110
+    00110 01001
     |}]
 ;;
 

@@ -2,9 +2,9 @@ open Core
 open Hardcaml
 
 type t =
-  { signals : (Bits.t ref * Signal.t) Signal.Type.Uid_map.t
-  ; input_signals : (Bits.t ref * Signal.t) list
-  ; output_signals : (Bits.t ref * Signal.t) list
+  { input_signals : (Bits.t ref * Signal.t) list
+  ; output_signals_before : (Bits.t ref * Signal.t) list
+  ; output_signals_after : (Bits.t ref * Signal.t) list
   ; internal_signals : (Bits.Mutable.t * Signal.t) list
   ; simulator : Simulator.Instance.t
   ; run_seq : Simulator.Instance.t -> unit
@@ -13,62 +13,42 @@ type t =
   ; run_reset : Simulator.Instance.t -> unit
   }
 
-let signals_to_refs t =
-  List.iter t.output_signals ~f:(fun (bits_ref, signal) ->
-    bits_ref := Simulator.Instance.read t.simulator signal)
+let copy_to_outputs simulator output_signals =
+  List.iter output_signals ~f:(fun (bits_ref, signal) ->
+    bits_ref := Simulator.Instance.read simulator signal)
 ;;
 
-let internal_signals_to_refs t =
+let copy_to_internal_signals t =
   List.iter t.internal_signals ~f:(fun (bits_mutable, signal) ->
     Simulator.Instance.read_mutable t.simulator signal bits_mutable)
 ;;
 
-let refs_to_signals t =
+let copy_to_inputs t =
   List.iter t.input_signals ~f:(fun (bits_ref, signal) ->
     Simulator.Instance.write t.simulator signal !bits_ref)
 ;;
 
 let cycle_before_clock_edge t =
-  refs_to_signals t;
+  copy_to_inputs t;
   t.run_comb t.simulator;
-  internal_signals_to_refs t;
-  signals_to_refs t
+  copy_to_internal_signals t;
+  copy_to_outputs t.simulator t.output_signals_before
 ;;
 
-let cycle_at_clock_edge t =
-  refs_to_signals t;
-  t.run_seq t.simulator;
-  signals_to_refs t
-;;
+let cycle_at_clock_edge t = t.run_seq t.simulator
 
 let cycle_after_clock_edge t =
-  refs_to_signals t;
   t.run_comb_last_layer t.simulator;
-  signals_to_refs t
+  copy_to_outputs t.simulator t.output_signals_after
 ;;
 
 let reset t =
-  refs_to_signals t;
+  copy_to_inputs t;
   (* recompute combinatorial logic to make sure reg_reset_value has a correct value *)
   t.run_comb t.simulator;
   t.run_reset t.simulator;
-  signals_to_refs t
-;;
-
-let make_port_list signal_map signals =
-  List.concat_map signals ~f:(fun signal ->
-    let bits_ref, _ = Map.find_exn signal_map (Signal.uid signal) in
-    List.map (Signal.names signal) ~f:(fun name -> name, bits_ref))
-  |> List.fold ~init:String.Map.empty ~f:(fun acc (name, bits_ref) ->
-       Map.set acc ~key:name ~data:bits_ref (* waveterm doesn't like duplicates *))
-  |> Map.to_alist
-;;
-
-let create_port_signal_map ports =
-  List.map ports ~f:(fun signal ->
-    let width = Signal.width signal in
-    Signal.uid signal, (ref (Bits.zero width), signal))
-  |> Map.of_alist_exn (module Signal.Uid)
+  copy_to_outputs t.simulator t.output_signals_before;
+  copy_to_outputs t.simulator t.output_signals_after
 ;;
 
 let create_internal_signal_map internal_signals =
@@ -84,7 +64,9 @@ let create
   ?compiler_command
   circuit
   =
-  let circuit = Hardcaml.Dedup.deduplicate circuit in
+  let circuit =
+    if config.deduplicate_signals then Hardcaml.Dedup.deduplicate circuit else circuit
+  in
   let traced =
     Cyclesim.Private.Traced_nodes.create ~is_internal_port:config.is_internal_port circuit
   in
@@ -98,14 +80,8 @@ let create
         [is_internal_port]."
       [%here]
       (List.length internal_signals);
-  let port_signals = Circuit.outputs circuit @ Circuit.inputs circuit in
   let simulator = Simulator.create ~interesting_signals:internal_signals circuit in
-  let port_signals_map = create_port_signal_map port_signals in
   let internal_signals_map = create_internal_signal_map internal_signals in
-  let signal_list signal_list =
-    List.map signal_list ~f:(fun signal ->
-      Map.find_exn port_signals_map (Signal.uid signal))
-  in
   let internal_signal_list =
     List.map internal_signals ~f:(fun signal ->
       Map.find_exn internal_signals_map (Signal.uid signal))
@@ -119,10 +95,11 @@ let create
     Simulator.add_function simulator (Simulator.make_reset_code simulator)
   in
   let instance = Simulator.start ?compiler_command simulator in
+  let port_refs s = List.map s ~f:(fun s -> ref (Bits.zero (Signal.width s)), s) in
   let t =
-    { signals = port_signals_map
-    ; input_signals = signal_list (Circuit.inputs circuit)
-    ; output_signals = signal_list (Circuit.outputs circuit)
+    { input_signals = port_refs (Circuit.inputs circuit)
+    ; output_signals_before = port_refs (Circuit.outputs circuit)
+    ; output_signals_after = port_refs (Circuit.outputs circuit)
     ; internal_signals = internal_signal_list
     ; simulator = instance
     ; run_seq
@@ -131,6 +108,14 @@ let create
     ; run_reset
     }
   in
+  let port_list ports =
+    List.map ports ~f:(fun (bits, signal) ->
+      let names = Signal.names signal in
+      match names with
+      | [ name ] -> name, bits
+      | _ ->
+        raise_s [%message "Circuit ports must have a single name" (names : string list)])
+  in
   let lookup_node (traced : Cyclesim.Traced.internal_signal) =
     Map.find internal_signals_map (Signal.uid traced.signal)
     |> Option.map ~f:(fun (bits, _) -> Cyclesim.Node.create_from_bits_mutable bits)
@@ -138,9 +123,9 @@ let create
   let lookup_unsupported _ = raise_s [%message "lookup unsupported in hardcaml C"] in
   let sim =
     Cyclesim.Private.create
-      ~in_ports:(make_port_list t.signals (Circuit.inputs circuit))
-      ~out_ports_before_clock_edge:(make_port_list t.signals (Circuit.outputs circuit))
-      ~out_ports_after_clock_edge:(make_port_list t.signals (Circuit.outputs circuit))
+      ~in_ports:(port_list t.input_signals)
+      ~out_ports_before_clock_edge:(port_list t.output_signals_before)
+      ~out_ports_after_clock_edge:(port_list t.output_signals_after)
       ~reset:(fun () -> reset t)
       ~cycle_check:(fun () -> ())
       ~cycle_before_clock_edge:(fun () -> cycle_before_clock_edge t)
@@ -158,12 +143,16 @@ let create
       let open Cyclesim.Combine_error in
       match error.clock_edge with
       | Hardcaml.Side.Before ->
-        (* we don't support (yet?) recording values before clock edge *)
-        ()
+        raise_s
+          [%message
+            "Cyclesim/Hardcaml_c output port values differ before clock edge"
+              (error.port_name : string)
+              ~cyclesim_value:(error.value1 : Bits.t)
+              ~event_driven_sim_value:(error.value0 : Bits.t)]
       | Hardcaml.Side.After ->
         raise_s
           [%message
-            "Cyclesim/Event_driven_sim output port values differ"
+            "Cyclesim/Hardcaml_c output port values differ after clock edge"
               (error.port_name : string)
               ~cyclesim_value:(error.value1 : Bits.t)
               ~event_driven_sim_value:(error.value0 : Bits.t)]
