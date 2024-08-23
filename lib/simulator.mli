@@ -32,3 +32,4 @@ val make_seq_code : t -> string list
 val make_comb_code : t -> string list
 val make_comb_last_layer_code : t -> string list
 val make_reset_code : t -> string list
+val make_initialization_code : t -> string list

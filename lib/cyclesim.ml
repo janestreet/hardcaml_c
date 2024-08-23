@@ -94,7 +94,11 @@ let create
   let run_reset =
     Simulator.add_function simulator (Simulator.make_reset_code simulator)
   in
+  let run_initialization =
+    Simulator.add_function simulator (Simulator.make_initialization_code simulator)
+  in
   let instance = Simulator.start ?compiler_command simulator in
+  run_initialization instance;
   let port_refs s = List.map s ~f:(fun s -> ref (Bits.zero (Signal.width s)), s) in
   let t =
     { input_signals = port_refs (Circuit.inputs circuit)

@@ -198,6 +198,13 @@ let make_reset_code t =
   |> List.filter ~f:(fun l -> not (String.equal l ""))
 ;;
 
+let make_initialization_code t =
+  schedule_signals t.circuit
+  |> List.map ~f:(fun signal ->
+    Codegen.compile_initializer_signal ~to_signal_info:(to_signal_info t) signal)
+  |> List.filter ~f:(fun l -> not (String.equal l ""))
+;;
+
 let make_seq_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->

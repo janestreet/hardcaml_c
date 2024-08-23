@@ -414,36 +414,35 @@ let compile_cat tgt signals =
 ;;
 
 let compile_reg ~to_signal_info signal ~source reg =
-  let { Reg_spec.reg_clock = _
-      ; reg_clock_edge = _
-      ; (* reset is supported by compile_reset_signal *)
-        reg_reset = _
-      ; reg_reset_edge = _
-      ; reg_reset_value = _
-      ; reg_clear
-      ; reg_clear_level
-      ; reg_clear_value
-      ; reg_enable
+  let { Signal.Type.spec =
+          { clock = _
+          ; clock_edge = _
+          ; (* reset is supported by compile_reset_signal *)
+            reset = _
+          ; reset_edge = _
+          ; clear
+          }
+      ; initialize_to = _
+      ; reset_to = _
+      ; clear_to
+      ; enable
       }
     =
     reg
   in
   let tgt = to_signal_info signal in
   let c_clear =
-    if Signal.is_empty reg_clear
+    if Signal.is_empty clear
     then ""
     else
       sprintf
-        "if (%s == %s) { %s } else"
-        (get_nth_word (to_signal_info reg_clear) 0)
-        (match (reg_clear_level : Level.t) with
-         | High -> "1"
-         | Low -> "0")
-        (compile_copy_to_prev ~tgt (to_signal_info reg_clear_value))
+        "if (%s == 1) { %s } else"
+        (get_nth_word (to_signal_info clear) 0)
+        (compile_copy_to_prev ~tgt (to_signal_info clear_to))
   in
   (sprintf "%s if (%s == 1) { %s }")
     c_clear
-    (get_nth_word (to_signal_info reg_enable) 0)
+    (get_nth_word (to_signal_info enable) 0)
     (compile_copy_to_prev ~tgt (to_signal_info source))
 ;;
 
@@ -570,13 +569,26 @@ let compile_seq_signal ~to_signal_info signal =
 
 let compile_reset_signal ~to_signal_info signal =
   match (signal : Signal.t) with
-  | Reg { register = { reg_reset; reg_reset_value; _ }; _ } ->
-    if Signal.is_empty reg_reset
+  | Reg { register = { spec = { reset; _ }; reset_to; _ }; _ } ->
+    if Signal.is_empty reset
     then ""
     else
-      compile_copy ~tgt:(to_signal_info signal) (to_signal_info reg_reset_value)
+      compile_copy ~tgt:(to_signal_info signal) (to_signal_info reset_to)
       ^ "\n"
-      ^ compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info reg_reset_value)
+      ^ compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info reset_to)
       ^ "\n"
+  | _ -> ""
+;;
+
+let compile_initializer_signal ~to_signal_info signal =
+  match (signal : Signal.t) with
+  | Reg { register = { spec = _; initialize_to; _ }; _ } ->
+    (match initialize_to with
+     | None -> ""
+     | Some initialize_to ->
+       compile_copy ~tgt:(to_signal_info signal) (to_signal_info initialize_to)
+       ^ "\n"
+       ^ compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info initialize_to)
+       ^ "\n")
   | _ -> ""
 ;;
