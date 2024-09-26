@@ -20,3 +20,13 @@ val width : signal_info -> int
 val compile_comb_signal : to_signal_info:(Signal.t -> signal_info) -> Signal.t -> string
 val compile_seq_signal : to_signal_info:(Signal.t -> signal_info) -> Signal.t -> string
 val compile_reset_signal : to_signal_info:(Signal.t -> signal_info) -> Signal.t -> string
+
+val compile_register_initializer
+  :  to_signal_info:(Signal.t -> signal_info)
+  -> Signal.t
+  -> string
+
+val compile_memory_initializer
+  :  to_signal_info:(Signal.t -> signal_info)
+  -> Signal.t
+  -> string list option

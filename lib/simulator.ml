@@ -22,11 +22,10 @@ let signal_allocated_width signal =
     if Signal.width signal <= Codegen.word_size
     then 0
     else Codegen.width_to_word_count (Signal.width signal)
-  | Wire { driver; _ } ->
+  | Wire { driver = None; _ } ->
     (* empty wires are inputs, other wires can be always eliminated *)
-    if Signal.is_empty !driver
-    then Codegen.width_to_word_count (Signal.width signal)
-    else 0
+    Codegen.width_to_word_count (Signal.width signal)
+  | Wire { driver = Some _; _ } -> 0
   | Reg _ ->
     (* registers need to keep a copy of the input signal from the previous cycle *)
     2 * Codegen.width_to_word_count (Signal.width signal)
@@ -69,7 +68,8 @@ let schedule_signals circuit =
 
 let rec unwrap_wire (s : Signal.t) =
   match s with
-  | Wire { driver; _ } -> if Signal.is_empty !driver then s else unwrap_wire !driver
+  | Wire { driver = None; _ } -> s
+  | Wire { driver = Some driver; _ } -> unwrap_wire driver
   | _ -> s
 ;;
 
@@ -137,13 +137,11 @@ let rec to_signal_info t signal =
   match signal with
   | Signal.Type.Const { constant; _ } ->
     if Bits.width constant <= 64 then Codegen.Const constant else normal
-  | Wire { driver; _ } ->
-    if Signal.is_empty !driver
-    then normal
-    else (
-      match to_signal_info t !driver with
-      | Codegen.Normal i -> Virtual i
-      | info -> info)
+  | Wire { driver = None; _ } -> normal
+  | Wire { driver = Some driver; _ } ->
+    (match to_signal_info t driver with
+     | Codegen.Normal i -> Virtual i
+     | info -> info)
   | _ -> normal
 ;;
 
@@ -195,14 +193,29 @@ let make_reset_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
     Codegen.compile_reset_signal ~to_signal_info:(to_signal_info t) signal)
-  |> List.filter ~f:(fun l -> not (String.equal l ""))
+  |> List.filter ~f:(fun l -> not (String.is_empty l))
+;;
+
+let make_register_initialization_code t =
+  schedule_signals t.circuit
+  |> List.map ~f:(fun signal ->
+    Codegen.compile_register_initializer ~to_signal_info:(to_signal_info t) signal)
+  |> List.filter ~f:(fun l -> not (String.is_empty l))
+;;
+
+let make_memory_initialization_code t =
+  schedule_signals t.circuit
+  |> List.map ~f:(fun signal ->
+    Codegen.compile_memory_initializer ~to_signal_info:(to_signal_info t) signal)
+  |> List.filter_opt
+  |> List.concat
 ;;
 
 let make_seq_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
     Codegen.compile_seq_signal ~to_signal_info:(to_signal_info t) signal)
-  |> List.filter ~f:(fun l -> not (String.equal l ""))
+  |> List.filter ~f:(fun l -> not (String.is_empty l))
 ;;
 
 module Instance = struct

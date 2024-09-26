@@ -414,37 +414,34 @@ let compile_cat tgt signals =
 ;;
 
 let compile_reg ~to_signal_info signal ~source reg =
-  let { Reg_spec.reg_clock = _
-      ; reg_clock_edge = _
+  let { Signal.Type.clock = _
       ; (* reset is supported by compile_reset_signal *)
-        reg_reset = _
-      ; reg_reset_edge = _
-      ; reg_reset_value = _
-      ; reg_clear
-      ; reg_clear_level
-      ; reg_clear_value
-      ; reg_enable
+        reset = _
+      ; clear
+      ; initialize_to = _
+      ; enable
       }
     =
     reg
   in
   let tgt = to_signal_info signal in
   let c_clear =
-    if Signal.is_empty reg_clear
-    then ""
-    else
+    match clear with
+    | None -> ""
+    | Some { clear; clear_to } ->
       sprintf
-        "if (%s == %s) { %s } else"
-        (get_nth_word (to_signal_info reg_clear) 0)
-        (match (reg_clear_level : Level.t) with
-         | High -> "1"
-         | Low -> "0")
-        (compile_copy_to_prev ~tgt (to_signal_info reg_clear_value))
+        "if (%s == 1) { %s } else"
+        (get_nth_word (to_signal_info clear) 0)
+        (compile_copy_to_prev ~tgt (to_signal_info clear_to))
   in
-  (sprintf "%s if (%s == 1) { %s }")
-    c_clear
-    (get_nth_word (to_signal_info reg_enable) 0)
-    (compile_copy_to_prev ~tgt (to_signal_info source))
+  match enable with
+  | None ->
+    sprintf "%s { %s }" c_clear (compile_copy_to_prev ~tgt (to_signal_info source))
+  | Some enable ->
+    (sprintf "%s if (%s == 1) { %s }")
+      c_clear
+      (get_nth_word (to_signal_info enable) 0)
+      (compile_copy_to_prev ~tgt (to_signal_info source))
 ;;
 
 let compile_write_port memory _write_clock write_address write_enable write_data =
@@ -534,12 +531,11 @@ let compile_comb_signal ~to_signal_info signal =
          | Signal_lt -> op2 compile_lt)
           arg_a
           arg_b
-      | Wire { driver; _ } ->
-        let src = to_signal_info !driver in
+      | Wire { driver = None; _ } -> sprintf "// %s = empty wire" (get_nth_word tgt 0)
+      | Wire { driver = Some driver; _ } ->
+        let src = to_signal_info driver in
         let tgt = tgt in
-        if width src <> 0
-        then compile_copy ~tgt src
-        else sprintf "// %s = empty wire" (get_nth_word tgt 0)
+        compile_copy ~tgt src
       | Select { arg; high; low; _ } ->
         let d = to_signal_info arg in
         let offset = low in
@@ -570,13 +566,45 @@ let compile_seq_signal ~to_signal_info signal =
 
 let compile_reset_signal ~to_signal_info signal =
   match (signal : Signal.t) with
-  | Reg { register = { reg_reset; reg_reset_value; _ }; _ } ->
-    if Signal.is_empty reg_reset
-    then ""
-    else
-      compile_copy ~tgt:(to_signal_info signal) (to_signal_info reg_reset_value)
+  | Reg { register = { reset; _ }; _ } ->
+    Option.value_map ~default:"" reset ~f:(fun { reset = _; reset_edge = _; reset_to } ->
+      compile_copy ~tgt:(to_signal_info signal) (to_signal_info reset_to)
       ^ "\n"
-      ^ compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info reg_reset_value)
-      ^ "\n"
+      ^ compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info reset_to)
+      ^ "\n")
   | _ -> ""
+;;
+
+let compile_register_initializer ~to_signal_info signal =
+  match (signal : Signal.t) with
+  | Reg { register = { initialize_to; _ }; _ } ->
+    (match initialize_to with
+     | None -> ""
+     | Some initialize_to ->
+       compile_copy ~tgt:(to_signal_info signal) (to_signal_info initialize_to)
+       ^ "\n"
+       ^ compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info initialize_to)
+       ^ "\n")
+  | _ -> ""
+;;
+
+let compile_memory_initializer ~to_signal_info signal =
+  match (signal : Signal.t) with
+  | Multiport_mem { initialize_to; _ } ->
+    Option.map initialize_to ~f:(fun initialize_to ->
+      Array.mapi initialize_to ~f:(fun address init ->
+        let memory = to_signal_info signal in
+        if Signal.width signal <= 8
+        then
+          [%string
+            "((uint8_t*)(&memory[%{word_offset memory#Int}]))[%{address#Int}] = \
+             (uint8_t)(%{get_bits_nth_word init 0});"]
+        else (
+          let word_count = word_count memory in
+          multiline word_count (fun offset ->
+            [%string
+              "memory[%{word_offset memory#Int} + (%{address#Int} * %{word_count#Int}) + \
+               %{offset#Int}] = %{get_bits_nth_word init offset};"])))
+      |> Array.to_list)
+  | _ -> None
 ;;
