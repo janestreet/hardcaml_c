@@ -95,7 +95,19 @@ let create
     Simulator.add_function simulator (Simulator.make_reset_code simulator)
   in
   let run_initialization =
-    Simulator.add_function simulator (Simulator.make_initialization_code simulator)
+    let run_register_initialization =
+      Simulator.add_function
+        simulator
+        (Simulator.make_register_initialization_code simulator)
+    in
+    let run_memory_initialization =
+      Simulator.add_function
+        simulator
+        (Simulator.make_memory_initialization_code simulator)
+    in
+    fun instance ->
+      run_register_initialization instance;
+      run_memory_initialization instance
   in
   let instance = Simulator.start ?compiler_command simulator in
   run_initialization instance;
@@ -152,18 +164,18 @@ let create
             "Cyclesim/Hardcaml_c output port values differ before clock edge"
               (error.port_name : string)
               ~cyclesim_value:(error.value1 : Bits.t)
-              ~event_driven_sim_value:(error.value0 : Bits.t)]
+              ~hardcaml_c_value:(error.value0 : Bits.t)]
       | Hardcaml.Side.After ->
         raise_s
           [%message
             "Cyclesim/Hardcaml_c output port values differ after clock edge"
               (error.port_name : string)
               ~cyclesim_value:(error.value1 : Bits.t)
-              ~event_driven_sim_value:(error.value0 : Bits.t)]
+              ~hardcaml_c_value:(error.value0 : Bits.t)]
     in
     let cyclesim = Cyclesim.create circuit in
     (* it's important [sim] is first - otherwise internal signals will come from Cyclesim,
-       not Event_driven_sim *)
+       not Hardcaml_c *)
     Cyclesim.combine ~on_error sim cyclesim)
   else sim
 ;;

@@ -241,14 +241,25 @@ let compile_not tgt a =
       (mask_of_size num_bits))
 ;;
 
-let compile_eq tgt a b =
-  let value =
+let eq_expr a b =
+  let eq =
     List.range 0 (word_count a)
     |> List.map ~f:(fun offset ->
-      sprintf "(%s == %s)" (get_nth_word a offset) (get_nth_word b offset))
-    |> String.concat ~sep:"&&"
+      [%string "(%{get_nth_word a offset} == %{get_nth_word b offset})"])
   in
-  sprintf "%s = (%s);" (get_nth_word tgt 0) value
+  [%string {|(%{String.concat eq ~sep:"&&"})|}]
+;;
+
+let compile_eq tgt a b = sprintf "%s = %s;" (get_nth_word tgt 0) (eq_expr a b)
+
+let%expect_test "eq" =
+  compile_eq
+    (Normal { index = `Global 3000; width = 127 })
+    (Normal { index = `Global 2000; width = 127 })
+    (Normal { index = `Global 1000; width = 127 })
+  |> printf "%s\n";
+  [%expect
+    {| memory[3000] = ((memory[2000] == memory[1000])&&(memory[2001] == memory[1001])); |}]
 ;;
 
 let compile_select tgt signal bit_offset length =
@@ -387,6 +398,64 @@ let compile_mux tgt selector signals =
   | None -> compile_mux_branchless tgt selector signals
 ;;
 
+let compile_match_const_two tgt select match_with on_true on_false =
+  multiline (word_count tgt) (fun offset ->
+    sprintf
+      "%s = %s ? %s : %s;"
+      (get_nth_word tgt offset)
+      (eq_expr select (Const match_with))
+      (get_nth_word on_true offset)
+      (get_nth_word on_false offset))
+;;
+
+let compile_cases tgt ~default select cases =
+  let _, strings =
+    List.fold_right
+      ~init:(default, [])
+      cases
+      ~f:(fun (match_with, value) (default, strings) ->
+        let string = compile_match_const_two tgt select match_with value default in
+        tgt, string :: strings)
+  in
+  String.concat ~sep:"\n" (List.rev strings)
+;;
+
+let%expect_test "cases" =
+  let test select_width data_width =
+    compile_cases
+      (Normal { index = `Global 100; width = select_width })
+      ~default:(Normal { index = `Global 200; width = data_width })
+      (Normal { index = `Global 300; width = select_width })
+      (List.init 5 ~f:(fun i ->
+         ( Bits.random ~width:select_width
+         , Normal { index = `Global (100 * (i + 4)); width = data_width } )))
+    |> printf "%s\n"
+  in
+  test 5 7;
+  [%expect
+    {|
+    memory[100] = ((memory[300] == 0x03ull)) ? memory[800] : memory[200];
+    memory[100] = ((memory[300] == 0x18ull)) ? memory[700] : memory[100];
+    memory[100] = ((memory[300] == 0x05ull)) ? memory[600] : memory[100];
+    memory[100] = ((memory[300] == 0x0eull)) ? memory[500] : memory[100];
+    memory[100] = ((memory[300] == 0x13ull)) ? memory[400] : memory[100];
+    |}];
+  test 120 100;
+  [%expect
+    {|
+    memory[100] = ((memory[300] == 0xe8cd618ced26fc0full)&&(memory[301] == 0x79a0498cda3605ull)) ? memory[800] : memory[200];
+    memory[101] = ((memory[300] == 0xe8cd618ced26fc0full)&&(memory[301] == 0x79a0498cda3605ull)) ? memory[801] : memory[201];
+    memory[100] = ((memory[300] == 0x3fa9867f3d252aacull)&&(memory[301] == 0x7da02517796223ull)) ? memory[700] : memory[100];
+    memory[101] = ((memory[300] == 0x3fa9867f3d252aacull)&&(memory[301] == 0x7da02517796223ull)) ? memory[701] : memory[101];
+    memory[100] = ((memory[300] == 0xa8e76824c87e266full)&&(memory[301] == 0x4094e8316bb2ffull)) ? memory[600] : memory[100];
+    memory[101] = ((memory[300] == 0xa8e76824c87e266full)&&(memory[301] == 0x4094e8316bb2ffull)) ? memory[601] : memory[101];
+    memory[100] = ((memory[300] == 0x8eeb020bd44b2d66ull)&&(memory[301] == 0xc935425cebe9aeull)) ? memory[500] : memory[100];
+    memory[101] = ((memory[300] == 0x8eeb020bd44b2d66ull)&&(memory[301] == 0xc935425cebe9aeull)) ? memory[501] : memory[101];
+    memory[100] = ((memory[300] == 0x053cff0edb4021c5ull)&&(memory[301] == 0x150f044f385ebcull)) ? memory[400] : memory[100];
+    memory[101] = ((memory[300] == 0x053cff0edb4021c5ull)&&(memory[301] == 0x150f044f385ebcull)) ? memory[401] : memory[101];
+    |}]
+;;
+
 let compile_cat tgt signals =
   let _, with_offset =
     List.fold (List.rev signals) ~init:(0, []) ~f:(fun (current_offset, acc) signal ->
@@ -414,17 +483,11 @@ let compile_cat tgt signals =
 ;;
 
 let compile_reg ~to_signal_info signal ~source reg =
-  let { Signal.Type.spec =
-          { clock = _
-          ; clock_edge = _
-          ; (* reset is supported by compile_reset_signal *)
-            reset = _
-          ; reset_edge = _
-          ; clear
-          }
+  let { Signal.Type.clock = _
+      ; (* reset is supported by compile_reset_signal *)
+        reset = _
+      ; clear
       ; initialize_to = _
-      ; reset_to = _
-      ; clear_to
       ; enable
       }
     =
@@ -432,18 +495,22 @@ let compile_reg ~to_signal_info signal ~source reg =
   in
   let tgt = to_signal_info signal in
   let c_clear =
-    if Signal.is_empty clear
-    then ""
-    else
+    match clear with
+    | None -> ""
+    | Some { clear; clear_to } ->
       sprintf
         "if (%s == 1) { %s } else"
         (get_nth_word (to_signal_info clear) 0)
         (compile_copy_to_prev ~tgt (to_signal_info clear_to))
   in
-  (sprintf "%s if (%s == 1) { %s }")
-    c_clear
-    (get_nth_word (to_signal_info enable) 0)
-    (compile_copy_to_prev ~tgt (to_signal_info source))
+  match enable with
+  | None ->
+    sprintf "%s { %s }" c_clear (compile_copy_to_prev ~tgt (to_signal_info source))
+  | Some enable ->
+    (sprintf "%s if (%s == 1) { %s }")
+      c_clear
+      (get_nth_word (to_signal_info enable) 0)
+      (compile_copy_to_prev ~tgt (to_signal_info source))
 ;;
 
 let compile_write_port memory _write_clock write_address write_enable write_data =
@@ -515,6 +582,14 @@ let compile_comb_signal ~to_signal_info signal =
         let select = to_signal_info select in
         let cases = List.map ~f:to_signal_info cases in
         compile_mux tgt select cases
+      | Cases { select; cases; default; _ } ->
+        let select = to_signal_info select in
+        let default = to_signal_info default in
+        let cases =
+          List.map cases ~f:(fun (match_with, value) ->
+            Signal.to_constant match_with |> Bits.of_constant, to_signal_info value)
+        in
+        compile_cases tgt ~default select cases
       | Op2 { op; arg_a; arg_b; _ } ->
         let op2 op a b =
           let a = to_signal_info a in
@@ -533,12 +608,11 @@ let compile_comb_signal ~to_signal_info signal =
          | Signal_lt -> op2 compile_lt)
           arg_a
           arg_b
-      | Wire { driver; _ } ->
-        let src = to_signal_info !driver in
+      | Wire { driver = None; _ } -> sprintf "// %s = empty wire" (get_nth_word tgt 0)
+      | Wire { driver = Some driver; _ } ->
+        let src = to_signal_info driver in
         let tgt = tgt in
-        if width src <> 0
-        then compile_copy ~tgt src
-        else sprintf "// %s = empty wire" (get_nth_word tgt 0)
+        compile_copy ~tgt src
       | Select { arg; high; low; _ } ->
         let d = to_signal_info arg in
         let offset = low in
@@ -569,20 +643,18 @@ let compile_seq_signal ~to_signal_info signal =
 
 let compile_reset_signal ~to_signal_info signal =
   match (signal : Signal.t) with
-  | Reg { register = { spec = { reset; _ }; reset_to; _ }; _ } ->
-    if Signal.is_empty reset
-    then ""
-    else
+  | Reg { register = { reset; _ }; _ } ->
+    Option.value_map ~default:"" reset ~f:(fun { reset = _; reset_edge = _; reset_to } ->
       compile_copy ~tgt:(to_signal_info signal) (to_signal_info reset_to)
       ^ "\n"
       ^ compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info reset_to)
-      ^ "\n"
+      ^ "\n")
   | _ -> ""
 ;;
 
-let compile_initializer_signal ~to_signal_info signal =
+let compile_register_initializer ~to_signal_info signal =
   match (signal : Signal.t) with
-  | Reg { register = { spec = _; initialize_to; _ }; _ } ->
+  | Reg { register = { initialize_to; _ }; _ } ->
     (match initialize_to with
      | None -> ""
      | Some initialize_to ->
@@ -591,4 +663,25 @@ let compile_initializer_signal ~to_signal_info signal =
        ^ compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info initialize_to)
        ^ "\n")
   | _ -> ""
+;;
+
+let compile_memory_initializer ~to_signal_info signal =
+  match (signal : Signal.t) with
+  | Multiport_mem { initialize_to; _ } ->
+    Option.map initialize_to ~f:(fun initialize_to ->
+      Array.mapi initialize_to ~f:(fun address init ->
+        let memory = to_signal_info signal in
+        if Signal.width signal <= 8
+        then
+          [%string
+            "((uint8_t*)(&memory[%{word_offset memory#Int}]))[%{address#Int}] = \
+             (uint8_t)(%{get_bits_nth_word init 0});"]
+        else (
+          let word_count = word_count memory in
+          multiline word_count (fun offset ->
+            [%string
+              "memory[%{word_offset memory#Int} + (%{address#Int} * %{word_count#Int}) + \
+               %{offset#Int}] = %{get_bits_nth_word init offset};"])))
+      |> Array.to_list)
+  | _ -> None
 ;;
