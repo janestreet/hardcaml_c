@@ -40,8 +40,16 @@ module C_scheduling_deps = Signal.Type.Make_deps (struct
         f init memory
       | Reg _ -> init
       | Multiport_mem _ -> init
-      | Empty | Const _ | Op2 _ | Mux _ | Not _ | Cat _ | Wire _ | Select _ | Inst _ ->
-        Signal.Type.Deps.fold t ~init ~f
+      | Empty
+      | Const _
+      | Op2 _
+      | Mux _
+      | Cases _
+      | Not _
+      | Cat _
+      | Wire _
+      | Select _
+      | Inst _ -> Signal.Type.Deps.fold t ~init ~f
     ;;
   end)
 
@@ -362,7 +370,7 @@ let start ?(compiler_command = "gcc -O0") t =
   let eval_library =
     ref (Dl.dlopen ~filename:(sprintf "%s/eval.so" dir) ~flags:[ Dl.RTLD_NOW ])
   in
-  Gc.Expert.add_finalizer_exn eval_library (fun lib -> Dl.dlclose ~handle:!lib);
+  Gc.Expert.add_finalizer_ignore eval_library (fun lib -> Dl.dlclose ~handle:!lib);
   Core_unix.unlink (dir ^ "/eval.c");
   Core_unix.unlink (dir ^ "/eval.so");
   Core_unix.rmdir dir;

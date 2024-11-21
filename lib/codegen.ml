@@ -241,14 +241,25 @@ let compile_not tgt a =
       (mask_of_size num_bits))
 ;;
 
-let compile_eq tgt a b =
-  let value =
+let eq_expr a b =
+  let eq =
     List.range 0 (word_count a)
     |> List.map ~f:(fun offset ->
-      sprintf "(%s == %s)" (get_nth_word a offset) (get_nth_word b offset))
-    |> String.concat ~sep:"&&"
+      [%string "(%{get_nth_word a offset} == %{get_nth_word b offset})"])
   in
-  sprintf "%s = (%s);" (get_nth_word tgt 0) value
+  [%string {|(%{String.concat eq ~sep:"&&"})|}]
+;;
+
+let compile_eq tgt a b = sprintf "%s = %s;" (get_nth_word tgt 0) (eq_expr a b)
+
+let%expect_test "eq" =
+  compile_eq
+    (Normal { index = `Global 3000; width = 127 })
+    (Normal { index = `Global 2000; width = 127 })
+    (Normal { index = `Global 1000; width = 127 })
+  |> printf "%s\n";
+  [%expect
+    {| memory[3000] = ((memory[2000] == memory[1000])&&(memory[2001] == memory[1001])); |}]
 ;;
 
 let compile_select tgt signal bit_offset length =
@@ -387,6 +398,64 @@ let compile_mux tgt selector signals =
   | None -> compile_mux_branchless tgt selector signals
 ;;
 
+let compile_match_const_two tgt select match_with on_true on_false =
+  multiline (word_count tgt) (fun offset ->
+    sprintf
+      "%s = %s ? %s : %s;"
+      (get_nth_word tgt offset)
+      (eq_expr select (Const match_with))
+      (get_nth_word on_true offset)
+      (get_nth_word on_false offset))
+;;
+
+let compile_cases tgt ~default select cases =
+  let _, strings =
+    List.fold_right
+      ~init:(default, [])
+      cases
+      ~f:(fun (match_with, value) (default, strings) ->
+        let string = compile_match_const_two tgt select match_with value default in
+        tgt, string :: strings)
+  in
+  String.concat ~sep:"\n" (List.rev strings)
+;;
+
+let%expect_test "cases" =
+  let test select_width data_width =
+    compile_cases
+      (Normal { index = `Global 100; width = select_width })
+      ~default:(Normal { index = `Global 200; width = data_width })
+      (Normal { index = `Global 300; width = select_width })
+      (List.init 5 ~f:(fun i ->
+         ( Bits.random ~width:select_width
+         , Normal { index = `Global (100 * (i + 4)); width = data_width } )))
+    |> printf "%s\n"
+  in
+  test 5 7;
+  [%expect
+    {|
+    memory[100] = ((memory[300] == 0x03ull)) ? memory[800] : memory[200];
+    memory[100] = ((memory[300] == 0x18ull)) ? memory[700] : memory[100];
+    memory[100] = ((memory[300] == 0x05ull)) ? memory[600] : memory[100];
+    memory[100] = ((memory[300] == 0x0eull)) ? memory[500] : memory[100];
+    memory[100] = ((memory[300] == 0x13ull)) ? memory[400] : memory[100];
+    |}];
+  test 120 100;
+  [%expect
+    {|
+    memory[100] = ((memory[300] == 0xe8cd618ced26fc0full)&&(memory[301] == 0x79a0498cda3605ull)) ? memory[800] : memory[200];
+    memory[101] = ((memory[300] == 0xe8cd618ced26fc0full)&&(memory[301] == 0x79a0498cda3605ull)) ? memory[801] : memory[201];
+    memory[100] = ((memory[300] == 0x3fa9867f3d252aacull)&&(memory[301] == 0x7da02517796223ull)) ? memory[700] : memory[100];
+    memory[101] = ((memory[300] == 0x3fa9867f3d252aacull)&&(memory[301] == 0x7da02517796223ull)) ? memory[701] : memory[101];
+    memory[100] = ((memory[300] == 0xa8e76824c87e266full)&&(memory[301] == 0x4094e8316bb2ffull)) ? memory[600] : memory[100];
+    memory[101] = ((memory[300] == 0xa8e76824c87e266full)&&(memory[301] == 0x4094e8316bb2ffull)) ? memory[601] : memory[101];
+    memory[100] = ((memory[300] == 0x8eeb020bd44b2d66ull)&&(memory[301] == 0xc935425cebe9aeull)) ? memory[500] : memory[100];
+    memory[101] = ((memory[300] == 0x8eeb020bd44b2d66ull)&&(memory[301] == 0xc935425cebe9aeull)) ? memory[501] : memory[101];
+    memory[100] = ((memory[300] == 0x053cff0edb4021c5ull)&&(memory[301] == 0x150f044f385ebcull)) ? memory[400] : memory[100];
+    memory[101] = ((memory[300] == 0x053cff0edb4021c5ull)&&(memory[301] == 0x150f044f385ebcull)) ? memory[401] : memory[101];
+    |}]
+;;
+
 let compile_cat tgt signals =
   let _, with_offset =
     List.fold (List.rev signals) ~init:(0, []) ~f:(fun (current_offset, acc) signal ->
@@ -513,6 +582,14 @@ let compile_comb_signal ~to_signal_info signal =
         let select = to_signal_info select in
         let cases = List.map ~f:to_signal_info cases in
         compile_mux tgt select cases
+      | Cases { select; cases; default; _ } ->
+        let select = to_signal_info select in
+        let default = to_signal_info default in
+        let cases =
+          List.map cases ~f:(fun (match_with, value) ->
+            Signal.to_constant match_with |> Bits.of_constant, to_signal_info value)
+        in
+        compile_cases tgt ~default select cases
       | Op2 { op; arg_a; arg_b; _ } ->
         let op2 op a b =
           let a = to_signal_info a in

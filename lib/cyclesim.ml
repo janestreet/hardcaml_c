@@ -164,18 +164,18 @@ let create
             "Cyclesim/Hardcaml_c output port values differ before clock edge"
               (error.port_name : string)
               ~cyclesim_value:(error.value1 : Bits.t)
-              ~event_driven_sim_value:(error.value0 : Bits.t)]
+              ~hardcaml_c_value:(error.value0 : Bits.t)]
       | Hardcaml.Side.After ->
         raise_s
           [%message
             "Cyclesim/Hardcaml_c output port values differ after clock edge"
               (error.port_name : string)
               ~cyclesim_value:(error.value1 : Bits.t)
-              ~event_driven_sim_value:(error.value0 : Bits.t)]
+              ~hardcaml_c_value:(error.value0 : Bits.t)]
     in
     let cyclesim = Cyclesim.create circuit in
     (* it's important [sim] is first - otherwise internal signals will come from Cyclesim,
-       not Event_driven_sim *)
+       not Hardcaml_c *)
     Cyclesim.combine ~on_error sim cyclesim)
   else sim
 ;;
