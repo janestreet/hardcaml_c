@@ -4,6 +4,9 @@ open Hardcaml_c
 module Cyclesim = Hardcaml.Cyclesim
 module C_cyclesim = Hardcaml_c.Cyclesim
 
+let print_rope r = print_string (Rope.to_string r)
+let print_ropes r = print_rope (Rope.concat ~sep:[%rope "\n"] r)
+
 let%expect_test "no clock" =
   let open Hardcaml.Signal in
   let signal = of_string "1110" in
@@ -34,7 +37,7 @@ let test_circuit () =
 let%expect_test "simple" =
   let circuit = test_circuit () in
   let t = create circuit in
-  make_comb_code t |> String.concat ~sep:"\n" |> print_endline;
+  make_comb_code t |> print_ropes;
   [%expect
     {|
     // Signal Wire[id:1 bits:63 names:input deps:] -> ()
@@ -55,7 +58,7 @@ let%expect_test "simple" =
     memory[6] = memory[2] | memory[4];
     // Signal Wire[id:2 bits:126 names:output deps:7] -> 7
     |}];
-  make_seq_code t |> String.concat ~sep:"\n" |> print_endline;
+  make_seq_code t |> print_ropes;
   [%expect {| |}]
 ;;
 
@@ -91,7 +94,7 @@ let test_register_circuit () =
 let%expect_test "register" =
   let circuit = test_register_circuit () in
   let t = create circuit in
-  make_comb_code t |> String.concat ~sep:"\n" |> print_endline;
+  make_comb_code t |> print_ropes;
   [%expect
     {|
     // Signal Reg[id:6 bits:5 names: deps:3,2,5,1]
@@ -111,16 +114,16 @@ let%expect_test "register" =
     // Signal Wire[id:1 bits:1 names:ena deps:] -> ()
     // memory[4] = empty wire
     |}];
-  make_comb_last_layer_code t |> String.concat ~sep:"\n" |> print_endline;
+  make_comb_last_layer_code t |> print_ropes;
   [%expect
     {|
     // Signal Reg[id:6 bits:5 names: deps:3,2,5,1]
     memory[0] = memory[1];
     // Signal Wire[id:4 bits:5 names:output deps:6] -> 6
     |}];
-  make_seq_code t |> String.concat ~sep:"\n" |> print_endline;
+  make_seq_code t |> print_ropes;
   [%expect {| if (memory[4] == 1) { memory[1] = memory[2]; } |}];
-  make_register_initialization_code t |> String.concat ~sep:"\n" |> print_endline;
+  make_register_initialization_code t |> print_ropes;
   [%expect
     {|
     memory[0] = 0x15ull;
@@ -173,7 +176,7 @@ let test_multiport_memory_circuit data_width =
 let%expect_test "multiport memory" =
   let circuit = test_multiport_memory_circuit 4 in
   let t = create circuit in
-  make_comb_code t |> String.concat ~sep:"\n" |> print_endline;
+  make_comb_code t |> print_ropes;
   [%expect
     {|
     // Signal Const[id:3 bits:4 names: deps:] = 0001
@@ -192,10 +195,10 @@ let%expect_test "multiport memory" =
 
     // Signal Const[id:6 bits:1 names: deps:] = 1
     |}];
-  make_seq_code t |> String.concat ~sep:"\n" |> print_endline;
+  make_seq_code t |> print_ropes;
   [%expect
     {| if (0x1ull == 1) { ((uint8_t*)(&memory[0]))[0x3ull] = (uint8_t)(0xfull); } |}];
-  make_memory_initialization_code t |> String.concat ~sep:"\n" |> print_endline;
+  make_memory_initialization_code t |> print_ropes;
   [%expect
     {|
     ((uint8_t*)(&memory[0]))[0] = (uint8_t)(0x3ull);
@@ -214,8 +217,7 @@ let%expect_test "multiport memory" =
   test_multiport_memory_circuit 32
   |> create
   |> make_memory_initialization_code
-  |> String.concat ~sep:"\n"
-  |> print_endline;
+  |> print_ropes;
   [%expect
     {|
     memory[0 + (0 * 1) + 0] = 0xefac79a0ull;
@@ -234,8 +236,7 @@ let%expect_test "multiport memory" =
   test_multiport_memory_circuit 64
   |> create
   |> make_memory_initialization_code
-  |> String.concat ~sep:"\n"
-  |> print_endline;
+  |> print_ropes;
   [%expect
     {|
     memory[0 + (0 * 1) + 0] = 0x0edb402101c5c935ull;
@@ -254,8 +255,7 @@ let%expect_test "multiport memory" =
   test_multiport_memory_circuit 96
   |> create
   |> make_memory_initialization_code
-  |> String.concat ~sep:"\n"
-  |> print_endline;
+  |> print_ropes;
   [%expect
     {|
     memory[0 + (0 * 2) + 0] = 0xeb5f03ea6ec9ec03ull;
@@ -293,9 +293,9 @@ let%expect_test "Initial values, resets and clears of registers" =
   let q =
     reg_fb
       (Reg_spec.create ~clock ~reset ~clear ())
-      ~initialize_to:(Signal.of_int ~width:8 16)
-      ~reset_to:(Signal.of_int ~width:8 32)
-      ~clear_to:(Signal.of_int ~width:8 48)
+      ~initialize_to:(Signal.of_unsigned_int ~width:8 16)
+      ~reset_to:(Signal.of_unsigned_int ~width:8 32)
+      ~clear_to:(Signal.of_unsigned_int ~width:8 48)
       ~width:8
       ~f:(fun d -> d +:. 1)
   in
@@ -315,7 +315,7 @@ let%expect_test "Initial values, resets and clears of registers" =
   for _ = 0 to 1 do
     Cyclesim.cycle sim
   done;
-  Hardcaml_waveterm.Waveform.print waves ~wave_width:2 ~display_height:12;
+  Hardcaml_waveterm.Waveform.print waves ~wave_width:2;
   [%expect
     {|
     ┌Signals────────┐┌Waves──────────────────────────────────────────────┐
@@ -328,7 +328,6 @@ let%expect_test "Initial values, resets and clears of registers" =
     │               ││──────┬─────┬───────────┬─────┬─────┬─────┬─────   │
     │q              ││ 10   │11   │20         │21   │22   │30   │31      │
     │               ││──────┴─────┴───────────┴─────┴─────┴─────┴─────   │
-    │               ││                                                   │
     └───────────────┘└───────────────────────────────────────────────────┘
     |}]
 ;;
@@ -343,7 +342,7 @@ let%expect_test "Initial values of memory" =
       (* Start a counter at 2 *)
       reg_fb
         (Reg_spec.create ~clock ())
-        ~initialize_to:(Signal.of_int ~width:address_width 2)
+        ~initialize_to:(Signal.of_unsigned_int ~width:address_width 2)
         ~width:address_width
         ~f:(fun d -> d +:. 1)
     in
@@ -358,7 +357,7 @@ let%expect_test "Initial values of memory" =
              }
           |]
         ~read_addresses:[| read_address |]
-        ~initialize_to:(Array.init size ~f:(Bits.of_int ~width:data_width))
+        ~initialize_to:(Array.init size ~f:(Bits.of_unsigned_int ~width:data_width))
     in
     let circ = Circuit.create_exn ~name:"test" [ output "q" ports.(0) ] in
     let sim = C_cyclesim.create circ in
@@ -368,7 +367,7 @@ let%expect_test "Initial values of memory" =
     done;
     Cyclesim.in_port sim "write_enable" := Bits.vdd;
     Cyclesim.in_port sim "write_data" := Bits.ones data_width;
-    Cyclesim.in_port sim "write_address" := Bits.of_int ~width:address_width 6;
+    Cyclesim.in_port sim "write_address" := Bits.of_unsigned_int ~width:address_width 6;
     Cyclesim.cycle sim;
     Cyclesim.in_port sim "write_enable" := Bits.gnd;
     for _ = 0 to 5 do
@@ -383,7 +382,6 @@ let%expect_test "Initial values of memory" =
         ]
       waves
       ~wave_width:2
-      ~display_height:20
   in
   test 8;
   [%expect
@@ -402,11 +400,6 @@ let%expect_test "Initial values of memory" =
     │               ││──────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬──│
     │q              ││ 2    │3    │4    │5    │255  │7    │0    │1    │2 │
     │               ││──────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┴──│
-    │               ││                                                   │
-    │               ││                                                   │
-    │               ││                                                   │
-    │               ││                                                   │
-    │               ││                                                   │
     └───────────────┘└───────────────────────────────────────────────────┘
     |}];
   test 96;
@@ -426,11 +419,6 @@ let%expect_test "Initial values of memory" =
     │               ││──────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬──│
     │q              ││ 2    │3    │4    │5    │.0335│7    │0    │1    │2 │
     │               ││──────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┴──│
-    │               ││                                                   │
-    │               ││                                                   │
-    │               ││                                                   │
-    │               ││                                                   │
-    │               ││                                                   │
     └───────────────┘└───────────────────────────────────────────────────┘
     |}]
 ;;

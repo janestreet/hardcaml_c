@@ -24,11 +24,11 @@ let width = function
 ;;
 
 let word_offset = function
-  | Const _ -> failwith "word_offset unsupported for constants"
+  | Const _ -> raise_s [%message "word_offset unsupported for constants"]
   | Normal { index; _ } | Virtual { index; _ } ->
     (match index with
      | `Global word_offset -> word_offset
-     | _ -> failwith "word_offset unsupported on local signals")
+     | _ -> raise_s [%message "word_offset unsupported on local signals"])
 ;;
 
 let is_const = function
@@ -56,15 +56,27 @@ let is_virtual = function
   | Normal _ -> false
 ;;
 
-let c_zero = "0ull"
+let c_zero = [%rope "0ull"]
+let newline = [%rope "\n"]
+let negate x = [%rope "-(%{x})"]
+let bracket d = Rope.concat [ [%rope "("]; d; [%rope ")"] ]
+let assign tgt e = [%rope "%{tgt} = %{e};"]
+let op2 a op b = [%rope "%{a} %{op#String} %{b}"]
+let op2_int a op b = [%rope "%{a} %{op#String} %{b#Int}"]
+let not_ x = [%rope "~(%{x})"]
+let and_ x y = [%rope "(%{x}) & (%{y})"]
+let or_ x y = [%rope "(%{x}) | (%{y})"]
 
 let bits_to_c b =
   assert (Bits.width b <= 64);
   let hex =
     b |> Bits.to_constant |> Constant.to_hex_string ~signedness:Signedness.Unsigned
   in
-  sprintf "0x%sull" hex
+  [%rope "0x%{hex#String}ull"]
 ;;
+
+let mask_of_size n = if n = 0 then [%rope "0"] else Bits.ones n |> bits_to_c
+let mask e width = [%rope "(%{e}) & %{mask_of_size width}"]
 
 let get_bits_nth_word b offset =
   let hi = Int.min (Bits.width b - 1) (((offset + 1) * word_size) - 1) in
@@ -72,24 +84,27 @@ let get_bits_nth_word b offset =
   bits_to_c data
 ;;
 
-let get_nth_word signal offset =
+let memory_at_const_offset offset = [%rope "memory[%{offset#Int}]"]
+let memory_at_ptr_offset ptr offset = [%rope "memory[%{ptr} + %{offset#Int}]"]
+
+let ( .:() ) signal offset =
   let word_count = word_count signal in
   match Int.compare offset word_count with
-  | 1 -> failwith "out of bounds read"
+  | 1 -> raise_s [%message "out of bounds read"]
   | 0 -> c_zero
   | -1 ->
     (match signal with
      | Const c -> get_bits_nth_word c offset
      | Virtual { index; _ } | Normal { index; _ } ->
        (match index with
-        | `Local i -> sprintf "local_%d" i
-        | `Global word_offset -> sprintf "memory[%d]" (word_offset + offset)))
+        | `Local i -> [%rope "local_%{i#Int}"]
+        | `Global word_offset -> memory_at_const_offset (word_offset + offset)))
   | _ -> assert false
 ;;
 
 let get_nth_word_prev signal offset =
   assert (not (is_const signal));
-  sprintf "memory[%d]" (word_offset signal + word_count signal + offset)
+  memory_at_const_offset (word_offset signal + word_count signal + offset)
 ;;
 
 let get_word_at signal bit_offset =
@@ -97,298 +112,175 @@ let get_word_at signal bit_offset =
   if bit_offset < 0
   then (
     assert (bit_offset > -word_size);
-    sprintf "%s << %d" (get_nth_word signal 0) (-bit_offset))
+    op2_int signal.:(0) "<<" (-bit_offset))
   else if bit_offset mod word_size = 0
   then (
     let word_offset = bit_offset / word_size in
-    get_nth_word signal word_offset)
+    signal.:(word_offset))
   else (
     let word_offset = bit_offset / word_size in
     let ibit_offset = bit_offset mod word_size in
-    sprintf
-      "((%s >> %d) | (%s << %d))"
-      (get_nth_word signal word_offset)
-      ibit_offset
-      (get_nth_word signal (word_offset + 1))
-      (word_size - ibit_offset))
+    bracket
+      (or_
+         (op2_int signal.:(word_offset) ">>" ibit_offset)
+         (op2_int signal.:(word_offset + 1) "<<" (word_size - ibit_offset))))
 ;;
 
-let mask_of_size n = if n = 0 then "0" else Bits.ones n |> bits_to_c
+let call_long_op2 name tgt a b width =
+  [%rope
+    "long_%{name#String}((uint32_t*)&%{tgt}, (uint32_t*)&%{a}, (uint32_t*)&%{b}, \
+     %{width#Int});"]
+;;
 
 let compile_add tgt a b =
   assert (width a = width b);
   if width a > word_size
-  then
-    sprintf
-      (* this is undefined behaviour, but we compile with -fno-strict-aliasing *)
-      "long_add((uint32_t*)&%s, (uint32_t*)&%s, (uint32_t*)&%s, %d);"
-      (get_nth_word tgt 0)
-      (get_nth_word a 0)
-      (get_nth_word b 0)
-      (width a)
-  else
-    sprintf
-      "%s = (%s + %s) & %s;"
-      (get_nth_word tgt 0)
-      (get_nth_word a 0)
-      (get_nth_word b 0)
-      (mask_of_size (width a))
+  then call_long_op2 "add" tgt.:(0) a.:(0) b.:(0) (width a)
+  else assign tgt.:(0) (mask (op2 a.:(0) "+" b.:(0)) (width a))
 ;;
 
 let compile_sub tgt a b =
   assert (width a = width b);
   if width a > word_size
-  then
-    sprintf
-      "long_sub((uint32_t*)&%s, (uint32_t*)&%s, (uint32_t*)&%s, %d);"
-      (get_nth_word tgt 0)
-      (get_nth_word a 0)
-      (get_nth_word b 0)
-      (width a)
-  else
-    sprintf
-      "%s = (%s - %s) & %s;"
-      (get_nth_word tgt 0)
-      (get_nth_word a 0)
-      (get_nth_word b 0)
-      (mask_of_size (width a))
+  then call_long_op2 "sub" tgt.:(0) a.:(0) b.:(0) (width a)
+  else assign tgt.:(0) (mask (op2 a.:(0) "-" b.:(0)) (width a))
 ;;
 
 let compile_lt tgt a b =
   assert (width a = width b);
   if width a > word_size
-  then
-    sprintf
-      "%s = long_lt(&%s, &%s, %d);"
-      (get_nth_word tgt 0)
-      (get_nth_word a 0)
-      (get_nth_word b 0)
-      (width a)
-  else
-    sprintf "%s = (%s < %s);" (get_nth_word tgt 0) (get_nth_word a 0) (get_nth_word b 0)
+  then assign tgt.:(0) [%rope "long_lt(&%{a.:(0)}, &%{b.:(0)}, %{width a#Int})"]
+  else assign tgt.:(0) (op2 a.:(0) "<" b.:(0))
 ;;
 
 let compile_long_mul name tgt a b =
+  let is_const_a = is_const a in
+  let is_const_b = is_const b in
+  let long_mul a b wa wb =
+    [%rope "long_%{name#String}(&%{tgt.:(0)}, &%{a}, &%{b}, %{wa#Int}, %{wb#Int});"]
+  in
   if is_const a && is_const b
-  then
-    sprintf
-      "{ uint64_t a = %s; uint64_t b = %s; long_%s(&%s, &a, &b, %d, %d); }"
-      (get_nth_word a 0)
-      (get_nth_word b 0)
-      name
-      (get_nth_word tgt 0)
-      (width a)
-      (width b)
-  else if is_const a || is_const b
   then (
-    let a, b = if is_const a then a, b else b, a in
-    sprintf
-      "{ uint64_t v = %s; long_%s(&%s, &v, &%s, %d, %d); }"
-      (get_nth_word a 0)
-      name
-      (get_nth_word tgt 0)
-      (get_nth_word b 0)
-      (width a)
-      (width b))
-  else
-    sprintf
-      "long_%s(&%s, &%s, &%s, %d, %d);"
-      name
-      (get_nth_word tgt 0)
-      (get_nth_word a 0)
-      (get_nth_word b 0)
-      (width a)
-      (width b)
+    let long_mul = long_mul [%rope "a"] [%rope "b"] (width a) (width b) in
+    [%rope "{ uint64_t a = %{a.:(0)}; uint64_t b = %{b.:(0)}; %{long_mul}; }"])
+  else if is_const_a || is_const_b
+  then (
+    let a, b = if is_const_a then a, b else b, a in
+    let long_mul = long_mul [%rope "v"] b.:(0) (width a) (width b) in
+    [%rope "{ uint64_t v = %{a.:(0)}; %{long_mul}; }"])
+  else long_mul a.:(0) b.:(0) (width a) (width b)
 ;;
 
 let compile_mulu tgt a b =
   if width tgt > word_size
   then compile_long_mul "mulu" tgt a b
-  else
-    sprintf "%s = (%s) * (%s);" (get_nth_word tgt 0) (get_nth_word a 0) (get_nth_word b 0)
+  else assign tgt.:(0) (op2 a.:(0) "*" b.:(0))
 ;;
 
 let compile_muls tgt a b = compile_long_mul "muls" tgt a b
-let multiline count f = List.range 0 count |> List.map ~f |> String.concat ~sep:"\n"
-
-let multiline' count f =
-  List.range 0 count |> List.concat_map ~f |> String.concat ~sep:"\n"
-;;
+let multiline count f = List.init count ~f |> Rope.concat ~sep:newline
+let multilines count f = List.init count ~f |> List.concat |> Rope.concat ~sep:newline
 
 let compile_const ~tgt b =
   multiline (word_count tgt) (fun offset ->
-    sprintf "%s = %s;" (get_nth_word tgt offset) (get_bits_nth_word b offset))
+    assign tgt.:(offset) (get_bits_nth_word b offset))
 ;;
 
 let compile_bitop op tgt a b =
   assert (width a = width b);
   multiline (word_count a) (fun offset ->
-    sprintf
-      "%s = %s %s %s;"
-      (get_nth_word tgt offset)
-      (get_nth_word a offset)
-      op
-      (get_nth_word b offset))
+    assign tgt.:(offset) (op2 a.:(offset) op b.:(offset)))
 ;;
 
 let compile_not tgt a =
   multiline (word_count a) (fun offset ->
     let num_bits = Int.min (width a - (offset * word_size)) word_size in
-    sprintf
-      "%s = %s ^ %s;"
-      (get_nth_word tgt offset)
-      (get_nth_word a offset)
-      (mask_of_size num_bits))
+    assign tgt.:(offset) (op2 a.:(offset) "^" (mask_of_size num_bits)))
 ;;
 
 let eq_expr a b =
-  let eq =
-    List.range 0 (word_count a)
-    |> List.map ~f:(fun offset ->
-      [%string "(%{get_nth_word a offset} == %{get_nth_word b offset})"])
-  in
-  [%string {|(%{String.concat eq ~sep:"&&"})|}]
+  bracket
+    (Rope.concat
+       ~sep:[%rope "&&"]
+       (List.init (word_count a) ~f:(fun offset ->
+          bracket (op2 a.:(offset) "==" b.:(offset)))))
 ;;
 
-let compile_eq tgt a b = sprintf "%s = %s;" (get_nth_word tgt 0) (eq_expr a b)
+let compile_eq tgt a b = assign tgt.:(0) (eq_expr a b)
 
-let%expect_test "eq" =
-  compile_eq
-    (Normal { index = `Global 3000; width = 127 })
-    (Normal { index = `Global 2000; width = 127 })
-    (Normal { index = `Global 1000; width = 127 })
-  |> printf "%s\n";
-  [%expect
-    {| memory[3000] = ((memory[2000] == memory[1000])&&(memory[2001] == memory[1001])); |}]
+let memcpy dst src src_offset num_bytes =
+  [%rope "memcpy(&%{dst}, ((char*)&%{src})+%{src_offset#Int}, %{num_bytes#Int});"]
 ;;
 
 let compile_select tgt signal bit_offset length =
   assert (length = width tgt);
   if word_count tgt > 5 && width tgt mod 8 = 0 && bit_offset mod 8 = 0
-  then
-    sprintf
-      "memcpy(&%s, ((char*)&%s)+%d, %d);"
-      (get_nth_word tgt 0)
-      (get_nth_word signal 0)
-      (bit_offset / 8)
-      (width tgt / 8)
+  then memcpy tgt.:(0) signal.:(0) (bit_offset / 8) (width tgt / 8)
   else
     multiline (word_count tgt) (fun offset ->
       let num_bits = Int.min (length - (offset * word_size)) word_size in
-      sprintf
-        "%s = %s & %s;"
-        (get_nth_word tgt offset)
-        (get_word_at signal (bit_offset + (offset * word_size)))
-        (mask_of_size num_bits))
+      assign
+        tgt.:(offset)
+        (op2
+           (get_word_at signal (bit_offset + (offset * word_size)))
+           "&"
+           (mask_of_size num_bits)))
 ;;
 
-let%expect_test "select" =
-  compile_select
-    (Normal { index = `Global 2000; width = 120 })
-    (Normal { index = `Global 1000; width = 210 })
-    10
-    120
-  |> printf "%s\n";
-  [%expect
-    {|
-    memory[2000] = ((memory[1000] >> 10) | (memory[1001] << 54)) & 0xffffffffffffffffull;
-    memory[2001] = ((memory[1001] >> 10) | (memory[1002] << 54)) & 0xffffffffffffffull;
-    |}]
-;;
-
-let compile_copy_to_address (dst_address : string) src =
+let compile_copy_to_address dst_address src =
   multiline (word_count src) (fun offset ->
-    sprintf "memory[%s + %d] = %s;" dst_address offset (get_nth_word src offset))
+    assign (memory_at_ptr_offset dst_address offset) src.:(offset))
 ;;
 
-let compile_copy_from_address tgt (source_address : string) =
+let compile_copy_from_address tgt source_address =
   multiline (word_count tgt) (fun offset ->
-    sprintf "%s = memory[%s + %d];" (get_nth_word tgt offset) source_address offset)
+    assign tgt.:(offset) (memory_at_ptr_offset source_address offset))
 ;;
 
 let compile_copy ~tgt a =
-  multiline (word_count tgt) (fun offset ->
-    sprintf "%s = %s;" (get_nth_word tgt offset) (get_nth_word a offset))
+  multiline (word_count tgt) (fun offset -> assign tgt.:(offset) a.:(offset))
 ;;
 
 let compile_copy_from_prev ~tgt a =
   multiline (word_count tgt) (fun offset ->
-    sprintf "%s = %s;" (get_nth_word tgt offset) (get_nth_word_prev a offset))
+    assign tgt.:(offset) (get_nth_word_prev a offset))
 ;;
 
 let compile_copy_to_prev ~tgt a =
   multiline (word_count tgt) (fun offset ->
-    sprintf "%s = %s;" (get_nth_word_prev tgt offset) (get_nth_word a offset))
+    assign (get_nth_word_prev tgt offset) a.:(offset))
 ;;
 
 let compile_mux_branchless ?(chunk_size = 1000) tgt selector signals =
-  multiline' (word_count tgt) (fun offset ->
-    let target = get_nth_word tgt offset in
+  let or_ = [%rope " | "] in
+  multilines (word_count tgt) (fun offset ->
+    let target = tgt.:(offset) in
     let rec traverse idx l =
       match List.split_n l chunk_size with
       | [], _ -> []
       | start, next ->
-        let s =
-          sprintf
-            "%s |= %s;"
-            target
-            (List.mapi start ~f:(fun i signal ->
-               let i = idx + i in
-               sprintf
-                 "(%s & (-(%s == %d)))"
-                 (get_nth_word signal offset)
-                 (get_nth_word selector 0)
-                 i)
-             |> String.concat ~sep:" | ")
+        let selects =
+          List.mapi start ~f:(fun i signal ->
+            (* [%rope "(%{signal.:(offset)} & (-(%{selector.:(0)} == %{(idx+i)#Int})))"] *)
+            bracket
+              (and_ signal.:(offset) (negate (op2_int selector.:(0) "==" (idx + i)))))
+          |> Rope.concat ~sep:or_
         in
-        s :: traverse (idx + chunk_size) next
+        [%rope "%{target} |= %{selects};"] :: traverse (idx + chunk_size) next
     in
-    sprintf "%s = 0;" target :: traverse 0 signals)
-;;
-
-let%expect_test "mux_branchless" =
-  compile_mux_branchless
-    (Normal { index = `Global 2000; width = 2 })
-    (Normal { index = `Global 100; width = 4 })
-    [ Const (Bits.of_string "00")
-    ; Const (Bits.of_string "01")
-    ; Const (Bits.of_string "10")
-    ]
-  |> printf "%s\n";
-  [%expect
-    {|
-    memory[2000] = 0;
-    memory[2000] |= (0x0ull & (-(memory[100] == 0))) | (0x1ull & (-(memory[100] == 1))) | (0x2ull & (-(memory[100] == 2)));
-    |}];
-  compile_mux_branchless
-    ~chunk_size:2
-    (Normal { index = `Global 2000; width = 2 })
-    (Normal { index = `Global 100; width = 4 })
-    [ Const (Bits.of_string "00")
-    ; Const (Bits.of_string "01")
-    ; Const (Bits.of_string "10")
-    ]
-  |> printf "%s\n";
-  [%expect
-    {|
-    memory[2000] = 0;
-    memory[2000] |= (0x0ull & (-(memory[100] == 0))) | (0x1ull & (-(memory[100] == 1)));
-    memory[2000] |= (0x2ull & (-(memory[100] == 2)));
-    |}]
+    assign target [%rope "0"] :: traverse 0 signals)
 ;;
 
 let compile_mux_two tgt selector signals =
   (* optimization for common case where [word_count tgt = 1] and [length signals = 2] *)
   match word_count tgt, signals with
   | 1, [ signal_1; signal_2 ] ->
+    let tgt = tgt.:(0) in
+    let signal_1 = signal_1.:(0) in
+    let sel = selector.:(0) in
+    let signal_2 = signal_2.:(0) in
     Some
-      (sprintf
-         "%s = (%s & (~(-(%s)))) | (%s & (-(%s)));"
-         (get_nth_word tgt 0)
-         (get_nth_word signal_1 0)
-         (get_nth_word selector 0)
-         (get_nth_word signal_2 0)
-         (get_nth_word selector 0))
+      (assign tgt (or_ (and_ signal_1 (not_ (negate sel))) (and_ signal_2 (negate sel))))
   | _ -> None
 ;;
 
@@ -398,14 +290,13 @@ let compile_mux tgt selector signals =
   | None -> compile_mux_branchless tgt selector signals
 ;;
 
+let mux sel on_true on_false = [%rope "%{sel} ? %{on_true} : %{on_false}"]
+
 let compile_match_const_two tgt select match_with on_true on_false =
   multiline (word_count tgt) (fun offset ->
-    sprintf
-      "%s = %s ? %s : %s;"
-      (get_nth_word tgt offset)
-      (eq_expr select (Const match_with))
-      (get_nth_word on_true offset)
-      (get_nth_word on_false offset))
+    assign
+      tgt.:(offset)
+      (mux (eq_expr select (Const match_with)) on_true.:(offset) on_false.:(offset)))
 ;;
 
 let compile_cases tgt ~default select cases =
@@ -417,43 +308,7 @@ let compile_cases tgt ~default select cases =
         let string = compile_match_const_two tgt select match_with value default in
         tgt, string :: strings)
   in
-  String.concat ~sep:"\n" (List.rev strings)
-;;
-
-let%expect_test "cases" =
-  let test select_width data_width =
-    compile_cases
-      (Normal { index = `Global 100; width = select_width })
-      ~default:(Normal { index = `Global 200; width = data_width })
-      (Normal { index = `Global 300; width = select_width })
-      (List.init 5 ~f:(fun i ->
-         ( Bits.random ~width:select_width
-         , Normal { index = `Global (100 * (i + 4)); width = data_width } )))
-    |> printf "%s\n"
-  in
-  test 5 7;
-  [%expect
-    {|
-    memory[100] = ((memory[300] == 0x03ull)) ? memory[800] : memory[200];
-    memory[100] = ((memory[300] == 0x18ull)) ? memory[700] : memory[100];
-    memory[100] = ((memory[300] == 0x05ull)) ? memory[600] : memory[100];
-    memory[100] = ((memory[300] == 0x0eull)) ? memory[500] : memory[100];
-    memory[100] = ((memory[300] == 0x13ull)) ? memory[400] : memory[100];
-    |}];
-  test 120 100;
-  [%expect
-    {|
-    memory[100] = ((memory[300] == 0xe8cd618ced26fc0full)&&(memory[301] == 0x79a0498cda3605ull)) ? memory[800] : memory[200];
-    memory[101] = ((memory[300] == 0xe8cd618ced26fc0full)&&(memory[301] == 0x79a0498cda3605ull)) ? memory[801] : memory[201];
-    memory[100] = ((memory[300] == 0x3fa9867f3d252aacull)&&(memory[301] == 0x7da02517796223ull)) ? memory[700] : memory[100];
-    memory[101] = ((memory[300] == 0x3fa9867f3d252aacull)&&(memory[301] == 0x7da02517796223ull)) ? memory[701] : memory[101];
-    memory[100] = ((memory[300] == 0xa8e76824c87e266full)&&(memory[301] == 0x4094e8316bb2ffull)) ? memory[600] : memory[100];
-    memory[101] = ((memory[300] == 0xa8e76824c87e266full)&&(memory[301] == 0x4094e8316bb2ffull)) ? memory[601] : memory[101];
-    memory[100] = ((memory[300] == 0x8eeb020bd44b2d66ull)&&(memory[301] == 0xc935425cebe9aeull)) ? memory[500] : memory[100];
-    memory[101] = ((memory[300] == 0x8eeb020bd44b2d66ull)&&(memory[301] == 0xc935425cebe9aeull)) ? memory[501] : memory[101];
-    memory[100] = ((memory[300] == 0x053cff0edb4021c5ull)&&(memory[301] == 0x150f044f385ebcull)) ? memory[400] : memory[100];
-    memory[101] = ((memory[300] == 0x053cff0edb4021c5ull)&&(memory[301] == 0x150f044f385ebcull)) ? memory[401] : memory[101];
-    |}]
+  Rope.concat ~sep:newline (List.rev strings)
 ;;
 
 let compile_cat tgt signals =
@@ -461,25 +316,26 @@ let compile_cat tgt signals =
     List.fold (List.rev signals) ~init:(0, []) ~f:(fun (current_offset, acc) signal ->
       current_offset + width signal, (current_offset, signal) :: acc)
   in
-  List.concat_map with_offset ~f:(fun (bit_offset, signal) ->
-    let first_word_bit_offset = bit_offset mod word_size in
-    let first_word = bit_offset / word_size in
-    List.range 0 (word_count signal + 1)
-    |> List.concat_map ~f:(fun word_offset ->
-      let v = get_word_at signal ((word_offset * word_size) - first_word_bit_offset) in
-      if first_word + word_offset < word_count tgt
-      then [ get_nth_word tgt (first_word + word_offset), v ]
-      else []))
-  |> String.Map.of_alist_multi
+  let s =
+    List.concat_map with_offset ~f:(fun (bit_offset, signal) ->
+      let first_word_bit_offset = bit_offset mod word_size in
+      let first_word = bit_offset / word_size in
+      List.range 0 (word_count signal + 1)
+      |> List.concat_map ~f:(fun word_offset ->
+        let v = get_word_at signal ((word_offset * word_size) - first_word_bit_offset) in
+        if first_word + word_offset < word_count tgt
+        then [ first_word + word_offset, v ]
+        else []))
+  in
+  Int.Map.of_alist_multi s
   |> Map.to_alist
-  |> List.map ~f:(fun (target, values) ->
-    sprintf
-      "%s = %s;"
-      target
+  |> List.map ~f:(fun (offset, values) ->
+    assign
+      tgt.:(offset)
       (match values with
        | [] -> c_zero
-       | _ -> String.concat ~sep:" | " values))
-  |> String.concat ~sep:"\n"
+       | _ -> Rope.concat ~sep:[%rope " | "] values))
+  |> Rope.concat ~sep:newline
 ;;
 
 let compile_reg ~to_signal_info signal ~source reg =
@@ -496,83 +352,71 @@ let compile_reg ~to_signal_info signal ~source reg =
   let tgt = to_signal_info signal in
   let c_clear =
     match clear with
-    | None -> ""
+    | None -> Rope.empty
     | Some { clear; clear_to } ->
-      sprintf
-        "if (%s == 1) { %s } else"
-        (get_nth_word (to_signal_info clear) 0)
-        (compile_copy_to_prev ~tgt (to_signal_info clear_to))
+      [%rope
+        "if (%{((to_signal_info clear).:(0))} == 1) { %{(compile_copy_to_prev ~tgt \
+         (to_signal_info clear_to))} } else"]
   in
   match enable with
   | None ->
-    sprintf "%s { %s }" c_clear (compile_copy_to_prev ~tgt (to_signal_info source))
+    [%rope "%{c_clear} { %{(compile_copy_to_prev ~tgt (to_signal_info source))} }"]
   | Some enable ->
-    (sprintf "%s if (%s == 1) { %s }")
-      c_clear
-      (get_nth_word (to_signal_info enable) 0)
-      (compile_copy_to_prev ~tgt (to_signal_info source))
+    [%rope
+      "%{c_clear} if (%{(to_signal_info enable).:(0)} == 1) { %{(compile_copy_to_prev \
+       ~tgt (to_signal_info source))} }"]
 ;;
 
-let compile_write_port memory _write_clock write_address write_enable write_data =
+let compile_write_port memory write_address write_enable write_data =
   let actual_copy =
-    if width write_data <= 8
+    let width = width write_data in
+    let offset = word_offset memory in
+    if width <= 8
     then
-      sprintf
-        "((uint8_t*)(&memory[%d]))[%s] = (uint8_t)(%s);"
-        (word_offset memory)
-        (get_nth_word write_address 0)
-        (get_nth_word write_data 0)
-    else
+      [%rope
+        "((uint8_t*)(&memory[%{offset#Int}]))[%{write_address.:(0)}] = \
+         (uint8_t)(%{write_data.:(0)});"]
+    else (
+      let word_count = word_count write_data in
       compile_copy_to_address
-        (sprintf
-           "%d + (%s) * %d"
-           (word_offset memory)
-           (get_nth_word write_address 0)
-           (word_count write_data))
-        write_data
+        [%rope "%{offset#Int} + (%{write_address.:(0)}) * %{word_count#Int}"]
+        write_data)
   in
-  sprintf " if (%s == 1) { %s }" (get_nth_word write_enable 0) actual_copy
+  [%rope " if (%{write_enable.:(0)} == 1) { %{actual_copy} }"]
 ;;
 
 let compile_multiport_mem ~to_signal_info signal write_ports =
   Array.to_list write_ports
   |> List.map
-       ~f:(fun { Write_port.write_clock; write_address; write_enable; write_data } ->
+       ~f:(fun { Write_port.write_clock = _; write_address; write_enable; write_data } ->
          compile_write_port
            (to_signal_info signal)
-           (to_signal_info write_clock)
            (to_signal_info write_address)
            (to_signal_info write_enable)
            (to_signal_info write_data))
-  |> String.concat ~sep:"\n"
+  |> Rope.concat ~sep:newline
 ;;
 
 let compile_mem_read_port tgt memory address =
-  if width tgt <= 8
-  then
-    sprintf
-      "%s = ((uint8_t*)(&memory[%d]))[%s];"
-      (get_nth_word tgt 0)
-      (word_offset memory)
-      (get_nth_word address 0)
+  let width = width tgt in
+  let word_count = word_count tgt in
+  let memory = word_offset memory in
+  if width <= 8
+  then assign tgt.:(0) [%rope "((uint8_t*)(&memory[%{memory#Int}]))[%{address.:(0)}]"]
   else
     compile_copy_from_address
       tgt
-      (sprintf
-         "(%d + (%s) * %d)"
-         (word_offset memory)
-         (get_nth_word address 0)
-         (word_count tgt))
+      [%rope "(%{memory#Int} + (%{address.:(0)}) * %{word_count#Int})"]
 ;;
 
 let compile_comb_signal ~to_signal_info signal =
   let tgt = to_signal_info signal in
   let code =
     if is_virtual tgt
-    then ""
+    then Rope.empty
     else (
       match (signal : Signal.t) with
-      | Empty -> ""
+      | Empty -> Rope.empty
       | Const { constant; _ } -> compile_const ~tgt constant
       | Not { arg; _ } ->
         let arg = to_signal_info arg in
@@ -608,7 +452,7 @@ let compile_comb_signal ~to_signal_info signal =
          | Signal_lt -> op2 compile_lt)
           arg_a
           arg_b
-      | Wire { driver = None; _ } -> sprintf "// %s = empty wire" (get_nth_word tgt 0)
+      | Wire { driver = None; _ } -> [%rope "// %{(tgt.:(0))} = empty wire"]
       | Wire { driver = Some driver; _ } ->
         let src = to_signal_info driver in
         let tgt = tgt in
@@ -619,17 +463,17 @@ let compile_comb_signal ~to_signal_info signal =
         let length = high - low + 1 in
         compile_select tgt d offset length
       | Reg _ -> compile_copy_from_prev ~tgt tgt
-      | Multiport_mem _ -> ""
+      | Multiport_mem _ -> Rope.empty
       | Mem_read_port { memory; read_address; _ } ->
         compile_mem_read_port tgt (to_signal_info memory) (to_signal_info read_address)
       | Inst _ -> raise_s [%message "Inst signals are unsupported" (signal : Signal.t)])
   in
   let code =
     match local_index tgt with
-    | Some index -> sprintf "uint64_t local_%d;\n%s" index code
+    | Some index -> [%rope "uint64_t local_%{index#Int};\n%{code}"]
     | None -> code
   in
-  sprintf "// Signal %s\n%s" (Signal.to_string signal) code
+  [%rope "// Signal %{signal#Signal}\n%{code}"]
 ;;
 
 let compile_seq_signal ~to_signal_info signal =
@@ -638,31 +482,40 @@ let compile_seq_signal ~to_signal_info signal =
     compile_reg ~to_signal_info signal ~source reg
   | Multiport_mem { write_ports; _ } ->
     compile_multiport_mem ~to_signal_info signal write_ports
-  | _ -> ""
+  | _ -> Rope.empty
 ;;
 
 let compile_reset_signal ~to_signal_info signal =
   match (signal : Signal.t) with
   | Reg { register = { reset; _ }; _ } ->
-    Option.value_map ~default:"" reset ~f:(fun { reset = _; reset_edge = _; reset_to } ->
-      compile_copy ~tgt:(to_signal_info signal) (to_signal_info reset_to)
-      ^ "\n"
-      ^ compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info reset_to)
-      ^ "\n")
-  | _ -> ""
+    Option.value_map
+      ~default:Rope.empty
+      reset
+      ~f:(fun { reset = _; reset_edge = _; reset_to } ->
+        Rope.concat
+          [ compile_copy ~tgt:(to_signal_info signal) (to_signal_info reset_to)
+          ; newline
+          ; compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info reset_to)
+          ; newline
+          ])
+  | _ -> Rope.empty
 ;;
 
 let compile_register_initializer ~to_signal_info signal =
   match (signal : Signal.t) with
   | Reg { register = { initialize_to; _ }; _ } ->
     (match initialize_to with
-     | None -> ""
+     | None -> Rope.empty
      | Some initialize_to ->
-       compile_copy ~tgt:(to_signal_info signal) (to_signal_info initialize_to)
-       ^ "\n"
-       ^ compile_copy_to_prev ~tgt:(to_signal_info signal) (to_signal_info initialize_to)
-       ^ "\n")
-  | _ -> ""
+       Rope.concat
+         [ compile_copy ~tgt:(to_signal_info signal) (to_signal_info initialize_to)
+         ; newline
+         ; compile_copy_to_prev
+             ~tgt:(to_signal_info signal)
+             (to_signal_info initialize_to)
+         ; newline
+         ])
+  | _ -> Rope.empty
 ;;
 
 let compile_memory_initializer ~to_signal_info signal =
@@ -673,15 +526,35 @@ let compile_memory_initializer ~to_signal_info signal =
         let memory = to_signal_info signal in
         if Signal.width signal <= 8
         then
-          [%string
+          [%rope
             "((uint8_t*)(&memory[%{word_offset memory#Int}]))[%{address#Int}] = \
              (uint8_t)(%{get_bits_nth_word init 0});"]
         else (
           let word_count = word_count memory in
           multiline word_count (fun offset ->
-            [%string
+            [%rope
               "memory[%{word_offset memory#Int} + (%{address#Int} * %{word_count#Int}) + \
                %{offset#Int}] = %{get_bits_nth_word init offset};"])))
       |> Array.to_list)
   | _ -> None
 ;;
+
+module For_testing = struct
+  let compile_add = compile_add
+  let compile_sub = compile_sub
+  let compile_lt = compile_lt
+  let compile_eq = compile_eq
+  let compile_mulu = compile_mulu
+  let compile_muls = compile_muls
+  let compile_bitop = compile_bitop
+  let compile_not = compile_not
+  let compile_const = compile_const
+  let compile_select = compile_select
+  let compile_mux_branchless = compile_mux_branchless
+  let compile_cases = compile_cases
+  let compile_mux = compile_mux
+  let compile_cat = compile_cat
+  let compile_reg = compile_reg
+  let compile_write_port = compile_write_port
+  let compile_mem_read_port = compile_mem_read_port
+end

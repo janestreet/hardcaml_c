@@ -1,1 +1,1 @@
-val header : string
+val header : Rope.t

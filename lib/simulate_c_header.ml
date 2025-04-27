@@ -1,5 +1,6 @@
 let header =
-  {|
+  Rope.of_string
+    {|
 #include <stdint.h>
 #include <sys/time.h>
 #include <stdio.h>

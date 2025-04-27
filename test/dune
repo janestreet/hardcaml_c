@@ -1,5 +1,5 @@
 (library
  (name hardcaml_c_test)
- (libraries core hardcaml hardcaml_c hardcaml_waveterm re)
+ (libraries core hardcaml hardcaml_c hardcaml_waveterm re jane_rope)
  (preprocess
-  (pps ppx_jane ppx_hardcaml)))
+  (pps ppx_jane ppx_hardcaml ppx_rope)))

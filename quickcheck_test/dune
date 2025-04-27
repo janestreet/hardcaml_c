@@ -1,5 +1,5 @@
 (library
  (name hardcaml_c_quickcheck_test)
- (libraries core hardcaml hardcaml_c hardcaml_test)
+ (libraries core hardcaml hardcaml_c hardcaml_test jane_rope)
  (preprocess
-  (pps ppx_jane ppx_hardcaml)))
+  (pps ppx_jane ppx_hardcaml ppx_rope)))
