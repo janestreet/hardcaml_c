@@ -10,8 +10,8 @@ val create
 module With_interface (I : Interface.S) (O : Interface.S) : sig
   type t = (Bits.t ref I.t, Bits.t ref O.t) Cyclesim.t
 
-  (** Create a simulator using the provided [Create_fn].  The returned simulator ports
-      are coerced to the input and output interface types. *)
+  (** Create a simulator using the provided [Create_fn]. The returned simulator ports are
+      coerced to the input and output interface types. *)
   val create
     :  ?config:Cyclesim.Config.t
     -> ?circuit_config:Circuit.Config.t

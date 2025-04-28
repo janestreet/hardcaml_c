@@ -8,7 +8,7 @@ type t =
   { total_words : int
   ; offsets : [ `Global of int | `Local of int ] Signal.Type.Uid_map.t
   ; circuit : Circuit.t
-  ; functions : string list ref
+  ; functions : Rope.t list ref
   }
 
 let signal_allocated_width signal =
@@ -58,7 +58,7 @@ let schedule_signals circuit =
      ensures that portions of the graph that are trees are scheduled in postorder DFS
      fashion (which probably improves cache behaviour). *)
   let queue = Queue.of_list (Circuit.outputs circuit) in
-  let visited = Hash_set.create (module Signal.Uid) in
+  let visited = Hash_set.create (module Signal.Type.Uid) in
   let result = Queue.create () in
   let rec visit signal =
     if not (Hash_set.mem visited (Signal.uid signal))
@@ -91,12 +91,12 @@ let allocate_offsets interesting_signals circuit =
         else i / signals_per_function
       in
       Signal.uid signal, section)
-    |> Map.of_alist_exn (module Signal.Uid)
+    |> Map.of_alist_exn (module Signal.Type.Uid)
   in
   let users =
     List.concat_map ordering ~f:(fun signal ->
       Signal.Type.Deps.rev_map signal ~f:(fun d -> Signal.uid (unwrap_wire d), signal))
-    |> Map.of_alist_multi (module Signal.Uid)
+    |> Map.of_alist_multi (module Signal.Type.Uid)
   in
   (* can the signal be allocated as a local function variable? *)
   let is_local signal =
@@ -115,7 +115,7 @@ let allocate_offsets interesting_signals circuit =
   let local_counter = ref 0 in
   List.fold
     ordering
-    ~init:(0, Map.empty (module Signal.Uid))
+    ~init:(0, Map.empty (module Signal.Type.Uid))
     ~f:(fun (offset, acc) signal ->
       let word_count = signal_allocated_width signal in
       let is_local = is_local signal in
@@ -133,7 +133,7 @@ let create ?(interesting_signals = []) circuit =
   in
   let interesting_signals =
     List.map ~f:(fun s -> Signal.uid (unwrap_wire s)) interesting_signals
-    |> Set.of_list (module Signal.Uid)
+    |> Set.of_list (module Signal.Type.Uid)
   in
   let total_words, offsets = allocate_offsets interesting_signals circuit in
   { total_words = Int.max total_words 1; offsets; functions = ref []; circuit }
@@ -155,7 +155,7 @@ let rec to_signal_info t signal =
 
 let cached_to_signal_info t =
   (* speedup signal info lookup for input/output ports *)
-  let cache = Hashtbl.create (module Signal.Uid) in
+  let cache = Hashtbl.create (module Signal.Type.Uid) in
   fun signal ->
     Hashtbl.find_or_add cache (Signal.uid signal) ~default:(fun () ->
       to_signal_info t signal)
@@ -173,7 +173,7 @@ let last_layer_of_nodes circuit =
      As in Hardcaml_c registers also generate some code in combinatorial
      section, they need to be included in last layer of nodes.
   *)
-  let in_last_layer = Hash_set.create (module Signal.Uid) in
+  let in_last_layer = Hash_set.create (module Signal.Type.Uid) in
   let rec visit_signal signal =
     if not (Hash_set.mem in_last_layer (Signal.uid signal))
     then (
@@ -185,7 +185,7 @@ let last_layer_of_nodes circuit =
       then C_scheduling_deps.iter signal ~f:visit_signal)
   in
   List.iter (Circuit.outputs circuit) ~f:visit_signal;
-  Hash_set.to_list in_last_layer |> Set.of_list (module Signal.Uid)
+  Hash_set.to_list in_last_layer |> Set.of_list (module Signal.Type.Uid)
 ;;
 
 let make_comb_last_layer_code t =
@@ -201,14 +201,14 @@ let make_reset_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
     Codegen.compile_reset_signal ~to_signal_info:(to_signal_info t) signal)
-  |> List.filter ~f:(fun l -> not (String.is_empty l))
+  |> List.filter ~f:(fun l -> not (Rope.is_empty l))
 ;;
 
 let make_register_initialization_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
     Codegen.compile_register_initializer ~to_signal_info:(to_signal_info t) signal)
-  |> List.filter ~f:(fun l -> not (String.is_empty l))
+  |> List.filter ~f:(fun l -> not (Rope.is_empty l))
 ;;
 
 let make_memory_initialization_code t =
@@ -223,7 +223,7 @@ let make_seq_code t =
   schedule_signals t.circuit
   |> List.map ~f:(fun signal ->
     Codegen.compile_seq_signal ~to_signal_info:(to_signal_info t) signal)
-  |> List.filter ~f:(fun l -> not (String.is_empty l))
+  |> List.filter ~f:(fun l -> not (Rope.is_empty l))
 ;;
 
 module Instance = struct
@@ -308,46 +308,42 @@ module Instance = struct
 end
 
 let format_single_function name lines =
-  sprintf
+  let code = Rope.concat ~sep:[%rope "\n  "] lines in
+  [%rope
     {|
-static void %s(uint64_t* memory) {
-  %s
+static void %{name}(uint64_t* memory) {
+  %{code}
 }
-    |}
-    name
-    (String.concat ~sep:"\n  " lines)
+    |}]
 ;;
 
 let format_function name lines =
   let blocks = List.chunks_of ~length:signals_per_function lines in
   let bodies =
     List.mapi blocks ~f:(fun i block ->
-      format_single_function (sprintf "%s_%d" name i) block)
-    |> String.concat ~sep:"\n"
+      format_single_function [%rope "%{name}_%{i#Int}"] block)
+    |> Rope.concat ~sep:[%rope "\n"]
   in
   let footer =
-    List.mapi blocks ~f:(fun i _ -> sprintf "%s_%d(memory);" name i)
-    |> String.concat ~sep:"\n  "
+    List.mapi blocks ~f:(fun i _ -> [%rope "%{name}_%{i#Int}(memory);"])
+    |> Rope.concat ~sep:[%rope "\n  "]
   in
-  sprintf
+  [%rope
     {|
-%s
-void %s(uint64_t* memory) {
-  %s
-} |}
-    bodies
-    name
-    footer
+%{bodies}
+void %{name}(uint64_t* memory) {
+  %{footer}
+} |}]
 ;;
 
 let make_c_source t =
-  let functions = !(t.functions) |> String.concat ~sep:"\n" in
-  Simulate_c_header.header ^ functions
+  let functions = !(t.functions) |> Rope.concat ~sep:[%rope "\n"] in
+  Rope.concat [ Simulate_c_header.header; functions ]
 ;;
 
 let add_function t body =
   let function_id = List.length !(t.functions) in
-  t.functions := format_function (sprintf "f%d" function_id) body :: !(t.functions);
+  t.functions := format_function [%rope "f%{function_id#Int}"] body :: !(t.functions);
   fun instance -> Instance.run_function instance function_id
 ;;
 
@@ -355,7 +351,7 @@ let start ?(compiler_command = "gcc -O0") t =
   let dir = Filename_unix.temp_dir "hardcaml-c" "" in
   (let c_file = Out_channel.create (dir ^ "/eval.c") in
    let source = make_c_source t in
-   Core.fprintf c_file "%s" source;
+   Out_channel.output_string c_file (Rope.to_string source);
    Out_channel.close c_file);
   (match
      Unix.system

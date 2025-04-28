@@ -55,7 +55,7 @@ let create_internal_signal_map internal_signals =
   List.map internal_signals ~f:(fun signal ->
     let width = Signal.width signal in
     Signal.uid signal, (Bits.Mutable.create width, signal))
-  |> Map.of_alist_exn (module Signal.Uid)
+  |> Map.of_alist_exn (module Signal.Type.Uid)
 ;;
 
 let create
