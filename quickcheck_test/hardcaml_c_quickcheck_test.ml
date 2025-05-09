@@ -1,1 +1,1 @@
-module Quickcheck_test = Quickcheck_test
+(*_ Nothing to export. *)

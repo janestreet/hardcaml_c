@@ -1,1 +1,1 @@
-module Bench = Bench
+(*_ Nothing to export. *)
