@@ -132,9 +132,12 @@ let create
       | _ ->
         raise_s [%message "Circuit ports must have a single name" (names : string list)])
   in
-  let lookup_node (traced : Cyclesim.Traced.internal_signal) =
-    Map.find internal_signals_map (Signal.uid traced.signal)
+  let lookup_node_by_id signal_id =
+    Map.find internal_signals_map signal_id
     |> Option.map ~f:(fun (bits, _) -> Cyclesim.Node.create_from_bits_mutable bits)
+  in
+  let lookup_node (traced : Cyclesim.Traced.internal_signal) =
+    lookup_node_by_id (Signal.uid traced.signal)
   in
   let lookup_unsupported _ = raise_s [%message "lookup unsupported in hardcaml C"] in
   let sim =
@@ -148,7 +151,9 @@ let create
       ~cycle_at_clock_edge:(fun () -> cycle_at_clock_edge t)
       ~cycle_after_clock_edge:(fun () -> cycle_after_clock_edge t)
       ~traced
+      ~lookup_node_by_id
       ~lookup_node
+      ~lookup_reg_by_id:lookup_unsupported
       ~lookup_reg:lookup_unsupported
       ~lookup_mem:lookup_unsupported
       ()
