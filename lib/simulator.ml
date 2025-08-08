@@ -347,7 +347,7 @@ let add_function t body =
   fun instance -> Instance.run_function instance function_id
 ;;
 
-let start ?(compiler_command = "gcc -O0") t =
+let start ?(compiler_command = "gcc -O0 -Wno-tautological-compare") t =
   let dir = Filename_unix.temp_dir "hardcaml-c" "" in
   (let c_file = Out_channel.create (dir ^ "/eval.c") in
    let source = make_c_source t in
