@@ -64,7 +64,7 @@ module For_testing : sig
     :  to_signal_info:(Signal.t -> signal_info)
     -> Signal.t
     -> source:Signal.t
-    -> Signal.t Hardcaml.Signal.Type.register
+    -> Signal.t Hardcaml.Signal.Type.Reg.Register.t
     -> Rope.t
 
   val compile_write_port
