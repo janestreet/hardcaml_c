@@ -339,7 +339,7 @@ let compile_cat tgt signals =
 ;;
 
 let compile_reg ~to_signal_info signal ~source reg =
-  let { Signal.Type.clock = _
+  let { Signal.Type.Reg.Register.clock = _
       ; (* reset is supported by compile_reset_signal *)
         reset = _
       ; clear
@@ -441,15 +441,15 @@ let compile_comb_signal ~to_signal_info signal =
           op tgt a b
         in
         (match op with
-         | Signal_add -> op2 compile_add
-         | Signal_sub -> op2 compile_sub
-         | Signal_mulu -> op2 compile_mulu
-         | Signal_muls -> op2 compile_muls
-         | Signal_and -> op2 (compile_bitop "&")
-         | Signal_or -> op2 (compile_bitop "|")
-         | Signal_xor -> op2 (compile_bitop "^")
-         | Signal_eq -> op2 compile_eq
-         | Signal_lt -> op2 compile_lt)
+         | Add -> op2 compile_add
+         | Sub -> op2 compile_sub
+         | Mulu -> op2 compile_mulu
+         | Muls -> op2 compile_muls
+         | And -> op2 (compile_bitop "&")
+         | Or -> op2 (compile_bitop "|")
+         | Xor -> op2 (compile_bitop "^")
+         | Eq -> op2 compile_eq
+         | Lt -> op2 compile_lt)
           arg_a
           arg_b
       | Wire { driver = None; _ } -> [%rope "// %{(tgt.:(0))} = empty wire"]

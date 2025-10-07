@@ -1,5 +1,5 @@
-Hardcaml C
-==========
+C based simulations
+===================
 
 Convert a Hardcaml design to a C based, cycle accurate, simulation model.
 
