@@ -241,6 +241,11 @@ let compile_copy ~tgt a =
   multiline (word_count tgt) (fun offset -> assign tgt.:(offset) a.:(offset))
 ;;
 
+let compile_copy_bits ~tgt a =
+  multiline (word_count tgt) (fun offset ->
+    assign tgt.:(offset) (get_bits_nth_word a offset))
+;;
+
 let compile_copy_from_prev ~tgt a =
   multiline (word_count tgt) (fun offset ->
     assign tgt.:(offset) (get_nth_word_prev a offset))
@@ -249,6 +254,11 @@ let compile_copy_from_prev ~tgt a =
 let compile_copy_to_prev ~tgt a =
   multiline (word_count tgt) (fun offset ->
     assign (get_nth_word_prev tgt offset) a.:(offset))
+;;
+
+let compile_copy_bits_to_prev ~tgt a =
+  multiline (word_count tgt) (fun offset ->
+    assign (get_nth_word_prev tgt offset) (get_bits_nth_word a offset))
 ;;
 
 let compile_mux_branchless ?(chunk_size = 1000) tgt selector signals =
@@ -508,11 +518,9 @@ let compile_register_initializer ~to_signal_info signal =
      | None -> Rope.empty
      | Some initialize_to ->
        Rope.concat
-         [ compile_copy ~tgt:(to_signal_info signal) (to_signal_info initialize_to)
+         [ compile_copy_bits ~tgt:(to_signal_info signal) initialize_to
          ; newline
-         ; compile_copy_to_prev
-             ~tgt:(to_signal_info signal)
-             (to_signal_info initialize_to)
+         ; compile_copy_bits_to_prev ~tgt:(to_signal_info signal) initialize_to
          ; newline
          ])
   | _ -> Rope.empty

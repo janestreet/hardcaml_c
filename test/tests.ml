@@ -80,12 +80,8 @@ let test_register_circuit () =
   let enable = input "ena" 1 in
   let reg_spec = Reg_spec.create () ~clock:clk in
   let v =
-    reg_fb
-      ~enable
-      ~initialize_to:(Signal.of_string "10101")
-      ~width:5
-      reg_spec
-      ~f:(fun s -> s +:. 3)
+    reg_fb ~enable ~initialize_to:(Bits.of_string "10101") ~width:5 reg_spec ~f:(fun s ->
+      s +:. 3)
   in
   let circuit = Circuit.create_exn ~name:"test" [ output "output" v ] in
   circuit
@@ -97,29 +93,27 @@ let%expect_test "register" =
   make_comb_code t |> print_ropes;
   [%expect
     {|
-    // Signal Reg[id:6 bits:5 names: deps:3,2,5,1]
+    // Signal Reg[id:5 bits:5 names: deps:3,2,1]
     memory[0] = memory[1];
-    // Signal Wire[id:4 bits:5 names:output deps:6] -> 6
+    // Signal Wire[id:4 bits:5 names:output deps:5] -> 5
 
-    // Signal Const[id:7 bits:5 names: deps:] = 00011
+    // Signal Const[id:6 bits:5 names: deps:] = 00011
 
-    // Signal Op[id:8 bits:5 names: deps:6,7] = add
+    // Signal Op[id:7 bits:5 names: deps:5,6] = add
     memory[2] = (memory[0] + 0x03ull) & 0x1full;
-    // Signal Wire[id:3 bits:5 names: deps:8] -> 8
+    // Signal Wire[id:3 bits:5 names: deps:7] -> 7
 
     // Signal Wire[id:2 bits:1 names:clk deps:] -> ()
     // memory[3] = empty wire
-    // Signal Const[id:5 bits:5 names: deps:] = 10101
-
     // Signal Wire[id:1 bits:1 names:ena deps:] -> ()
     // memory[4] = empty wire
     |}];
   make_comb_last_layer_code t |> print_ropes;
   [%expect
     {|
-    // Signal Reg[id:6 bits:5 names: deps:3,2,5,1]
+    // Signal Reg[id:5 bits:5 names: deps:3,2,1]
     memory[0] = memory[1];
-    // Signal Wire[id:4 bits:5 names:output deps:6] -> 6
+    // Signal Wire[id:4 bits:5 names:output deps:5] -> 5
     |}];
   make_seq_code t |> print_ropes;
   [%expect {| if (memory[4] == 1) { memory[1] = memory[2]; } |}];
@@ -293,8 +287,8 @@ let%expect_test "Initial values, resets and clears of registers" =
   let q =
     reg_fb
       (Reg_spec.create ~clock ~reset ~clear ())
-      ~initialize_to:(Signal.of_unsigned_int ~width:8 16)
-      ~reset_to:(Signal.of_unsigned_int ~width:8 32)
+      ~initialize_to:(Bits.of_unsigned_int ~width:8 16)
+      ~reset_to:(Bits.of_unsigned_int ~width:8 32)
       ~clear_to:(Signal.of_unsigned_int ~width:8 48)
       ~width:8
       ~f:(fun d -> d +:. 1)
@@ -342,7 +336,7 @@ let%expect_test "Initial values of memory" =
       (* Start a counter at 2 *)
       reg_fb
         (Reg_spec.create ~clock ())
-        ~initialize_to:(Signal.of_unsigned_int ~width:address_width 2)
+        ~initialize_to:(Bits.of_unsigned_int ~width:address_width 2)
         ~width:address_width
         ~f:(fun d -> d +:. 1)
     in
