@@ -6,7 +6,7 @@ let benchmarked_circuit () =
   |> Quickcheck.Generator.generate ~size:1000 ~random:(Splittable_random.of_int 42)
 ;;
 
-(*
+(*=
    ┌───────────────────────────────────────────┬─────────────┬─────────┬────────────┐
    │ Name                                      │    Time/Run │ mWd/Run │ Percentage │
    ├───────────────────────────────────────────┼─────────────┼─────────┼────────────┤
@@ -59,7 +59,7 @@ let many_inputs_and_outputs () =
   Circuit.create_exn ~name:"circuit" values
 ;;
 
-(*
+(*=
    ┌────────────────────────────────────┬──────────┬─────────┬──────────┬──────────┬────────────┐
    │ Name                               │ Time/Run │ mWd/Run │ mjWd/Run │ Prom/Run │ Percentage │
    ├────────────────────────────────────┼──────────┼─────────┼──────────┼──────────┼────────────┤

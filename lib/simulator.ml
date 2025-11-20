@@ -168,10 +168,9 @@ let make_comb_code t =
 ;;
 
 let last_layer_of_nodes circuit =
-  (*
-     This is a slightly simpler version of Circuit_graph.last_layer_of_nodes.
-     As in Hardcaml_c registers also generate some code in combinatorial
-     section, they need to be included in last layer of nodes.
+  (* This is a slightly simpler version of Circuit_graph.last_layer_of_nodes. As in
+     Hardcaml_c registers also generate some code in combinatorial section, they need to
+     be included in last layer of nodes.
   *)
   let in_last_layer = Hash_set.create (module Signal.Type.Uid) in
   let rec visit_signal signal =

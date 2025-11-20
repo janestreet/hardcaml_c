@@ -18,8 +18,7 @@ module With_interface (I : Interface.S) (O : Interface.S) : sig
     -> ?combine_with_cyclesim:bool
     -> ?compiler_command:
          string
-         (* Runs regular Cyclesim simulation and compares
-       results. Defaults to [false] *)
+         (* Runs regular Cyclesim simulation and compares results. Defaults to [false] *)
     -> Circuit.With_interface(I)(O).create
     -> t
 
