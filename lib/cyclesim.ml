@@ -148,6 +148,7 @@ let create
       ~reset:(fun () -> reset t)
       ~clock_mode:`All_one_domain
       ~clocks_aligned:(Fn.const true)
+      ~cycle_multiple:1
       ~cycle_check:(fun () -> ())
       ~cycle_before_clock_edge:(fun () -> cycle_before_clock_edge t)
       ~cycle_at_clock_edge:(fun () -> cycle_at_clock_edge t)
