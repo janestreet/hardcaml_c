@@ -501,7 +501,7 @@ let compile_reset_signal ~to_signal_info signal =
     Option.value_map
       ~default:Rope.empty
       reset
-      ~f:(fun { reset = _; reset_edge = _; reset_to } ->
+      ~f:(fun { reset = _; reset_level = _; reset_to } ->
         Rope.concat
           [ compile_copy ~tgt:(to_signal_info signal) (to_signal_info reset_to)
           ; newline
