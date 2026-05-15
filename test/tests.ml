@@ -7,10 +7,21 @@ module C_cyclesim = Hardcaml_c.Cyclesim
 let print_rope r = print_string (Rope.to_string r)
 let print_ropes r = print_rope (Rope.concat ~sep:[%rope "\n"] r)
 
+let create_circuit ~name signals =
+  Circuit.create_exn
+    ~name
+    ~config:
+      { Circuit.Config.default with
+        (* Ensure printed signal UIDs are stable *)
+        normalize_uids = true
+      }
+    signals
+;;
+
 let%expect_test "no clock" =
   let open Hardcaml.Signal in
   let signal = of_string "1110" in
-  let circuit = Circuit.create_exn ~name:"generated" [ output "out" signal ] in
+  let circuit = create_circuit ~name:"generated" [ output "out" signal ] in
   let sim = C_cyclesim.create circuit ~combine_with_cyclesim:true in
   Cyclesim.cycle sim;
   let out_port = Cyclesim.out_port sim "out" in
@@ -31,7 +42,7 @@ let test_circuit () =
             ~width:126
             ~signedness:Signedness.Unsigned)
   in
-  Circuit.create_exn ~name:"test" [ output "output" v ]
+  create_circuit ~name:"test" [ output "output" v ]
 ;;
 
 let%expect_test "simple" =
@@ -83,7 +94,7 @@ let test_register_circuit () =
     reg_fb ~enable ~initialize_to:(Bits.of_string "10101") ~width:5 reg_spec ~f:(fun s ->
       s +:. 3)
   in
-  let circuit = Circuit.create_exn ~name:"test" [ output "output" v ] in
+  let circuit = create_circuit ~name:"test" [ output "output" v ] in
   circuit
 ;;
 
@@ -164,7 +175,7 @@ let test_multiport_memory_circuit data_width =
       ~initialize_to:(Array.init size ~f:(fun _ -> Bits.random ~width:data_width))
   in
   let v = ports.(0) in
-  Circuit.create_exn ~name:"test" [ output "output" v ]
+  create_circuit ~name:"test" [ output "output" v ]
 ;;
 
 let%expect_test "multiport memory" =
@@ -293,9 +304,9 @@ let%expect_test "Initial values, resets and clears of registers" =
       ~width:8
       ~f:(fun d -> d +:. 1)
   in
-  let circ = Circuit.create_exn ~name:"initial" [ output "q" q ] in
+  let circ = create_circuit ~name:"initial" [ output "q" q ] in
   let sim = C_cyclesim.create circ in
-  let waves, sim = Hardcaml_waveterm.Waveform.create sim in
+  let waves, sim = Cyclesim.Waveform.create sim in
   for _ = 0 to 1 do
     Cyclesim.cycle sim
   done;
@@ -353,9 +364,9 @@ let%expect_test "Initial values of memory" =
         ~read_addresses:[| read_address |]
         ~initialize_to:(Array.init size ~f:(Bits.of_unsigned_int ~width:data_width))
     in
-    let circ = Circuit.create_exn ~name:"test" [ output "q" ports.(0) ] in
+    let circ = create_circuit ~name:"test" [ output "q" ports.(0) ] in
     let sim = C_cyclesim.create circ in
-    let waves, sim = Hardcaml_waveterm.Waveform.create sim in
+    let waves, sim = Cyclesim.Waveform.create sim in
     for _ = 0 to 1 do
       Cyclesim.cycle sim
     done;

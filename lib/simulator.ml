@@ -6,7 +6,7 @@ let signals_per_function = 1000
 
 type t =
   { total_words : int
-  ; offsets : [ `Global of int | `Local of int ] Signal.Type.Uid_map.t
+  ; offsets : [ `Global of int | `Local of int ] Signal.Type.Uid.Map.t
   ; circuit : Circuit.t
   ; functions : Rope.t list ref
   }
