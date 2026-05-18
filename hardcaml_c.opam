@@ -23,7 +23,7 @@ depends: [
   "ctypes-foreign" {= "0.23.0+ox"}
   "dune"           {>= "3.17.0"}
 ]
-available: arch != "arm32" & arch != "x86_32"
+available: arch != "x86_32"
 synopsis: "Hardcaml C Simulation Backend"
 description: "
 A fast C-based simulation backend for Hardcaml circuits.
