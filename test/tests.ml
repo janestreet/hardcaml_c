@@ -6,17 +6,7 @@ module C_cyclesim = Hardcaml_c.Cyclesim
 
 let print_rope r = print_string (Rope.to_string r)
 let print_ropes r = print_rope (Rope.concat ~sep:[%rope "\n"] r)
-
-let create_circuit ~name signals =
-  Circuit.create_exn
-    ~name
-    ~config:
-      { Circuit.Config.default with
-        (* Ensure printed signal UIDs are stable *)
-        normalize_uids = true
-      }
-    signals
-;;
+let create_circuit ~name signals = Circuit.create_exn ~name signals
 
 let%expect_test "no clock" =
   let open Hardcaml.Signal in
@@ -51,23 +41,23 @@ let%expect_test "simple" =
   make_comb_code t |> print_ropes;
   [%expect
     {|
-    // Signal Wire[id:1 bits:63 names:input deps:] -> ()
+    // Signal Wire[id:5 bits:63 names:input deps:] -> ()
     // memory[0] = empty wire
-    // Signal Const[id:3 bits:63 names: deps:] = 000000000000000000000000000000100100011010001010110011110001001
+    // Signal Const[id:6 bits:63 names: deps:] = 000000000000000000000000000000100100011010001010110011110001001
 
-    // Signal Op[id:4 bits:63 names: deps:1,3] = add
+    // Signal Op[id:7 bits:63 names: deps:5,6] = add
     uint64_t local_2;
     local_2 = (memory[0] + 0x0000000123456789ull) & 0x7fffffffffffffffull;
-    // Signal Op[id:5 bits:126 names: deps:4,4] = cat
+    // Signal Op[id:8 bits:126 names: deps:7,7] = cat
     memory[1] = local_2 << 63 | local_2;
     memory[2] = ((local_2 >> 1) | (0ull << 63)) | 0ull;
-    // Signal Const[id:6 bits:126 names: deps:] = 000000000000000000000000000000000000000000000000000000000100100011010001010110011110001001000000010010001101000101011001111000
+    // Signal Const[id:9 bits:126 names: deps:] = 000000000000000000000000000000000000000000000000000000000100100011010001010110011110001001000000010010001101000101011001111000
     memory[3] = 0x3456789012345678ull;
     memory[4] = 0x0000000000000012ull;
-    // Signal Op[id:7 bits:126 names: deps:5,6] = or
+    // Signal Op[id:10 bits:126 names: deps:8,9] = or
     memory[5] = memory[1] | memory[3];
     memory[6] = memory[2] | memory[4];
-    // Signal Wire[id:2 bits:126 names:output deps:7] -> 7
+    // Signal Wire[id:11 bits:126 names:output deps:10] -> 10
     |}];
   make_seq_code t |> print_ropes;
   [%expect {| |}]
@@ -104,27 +94,27 @@ let%expect_test "register" =
   make_comb_code t |> print_ropes;
   [%expect
     {|
-    // Signal Reg[id:5 bits:5 names: deps:3,2,1]
+    // Signal Reg[id:22 bits:5 names: deps:21,19,20]
     memory[0] = memory[1];
-    // Signal Wire[id:4 bits:5 names:output deps:5] -> 5
+    // Signal Wire[id:25 bits:5 names:output deps:22] -> 22
 
-    // Signal Const[id:6 bits:5 names: deps:] = 00011
+    // Signal Const[id:23 bits:5 names: deps:] = 00011
 
-    // Signal Op[id:7 bits:5 names: deps:5,6] = add
+    // Signal Op[id:24 bits:5 names: deps:22,23] = add
     memory[2] = (memory[0] + 0x03ull) & 0x1full;
-    // Signal Wire[id:3 bits:5 names: deps:7] -> 7
+    // Signal Wire[id:21 bits:5 names: deps:24] -> 24
 
-    // Signal Wire[id:2 bits:1 names:clk deps:] -> ()
+    // Signal Wire[id:19 bits:1 names:clk deps:] -> ()
     // memory[3] = empty wire
-    // Signal Wire[id:1 bits:1 names:ena deps:] -> ()
+    // Signal Wire[id:20 bits:1 names:ena deps:] -> ()
     // memory[4] = empty wire
     |}];
   make_comb_last_layer_code t |> print_ropes;
   [%expect
     {|
-    // Signal Reg[id:5 bits:5 names: deps:3,2,1]
+    // Signal Reg[id:22 bits:5 names: deps:21,19,20]
     memory[0] = memory[1];
-    // Signal Wire[id:4 bits:5 names:output deps:5] -> 5
+    // Signal Wire[id:25 bits:5 names:output deps:22] -> 22
     |}];
   make_seq_code t |> print_ropes;
   [%expect {| if (memory[4] == 1) { memory[1] = memory[2]; } |}];
@@ -184,21 +174,21 @@ let%expect_test "multiport memory" =
   make_comb_code t |> print_ropes;
   [%expect
     {|
-    // Signal Const[id:3 bits:4 names: deps:] = 0001
+    // Signal Const[id:34 bits:4 names: deps:] = 0001
 
-    // Signal Multiport_mem[id:7 bits:4 names: deps:1,4,5,6]
+    // Signal Multiport_mem[id:38 bits:4 names: deps:33,37,35,36]
 
-    // Signal Mem_read_port[id:8 bits:4 names: deps:3,7]
+    // Signal Mem_read_port[id:39 bits:4 names: deps:34,38]
     memory[2] = ((uint8_t*)(&memory[0]))[0x1ull];
-    // Signal Wire[id:2 bits:4 names:output deps:8] -> 8
+    // Signal Wire[id:40 bits:4 names:output deps:39] -> 39
 
-    // Signal Wire[id:1 bits:1 names:clk deps:] -> ()
+    // Signal Wire[id:33 bits:1 names:clk deps:] -> ()
     // memory[3] = empty wire
-    // Signal Const[id:4 bits:4 names: deps:] = 0011
+    // Signal Const[id:37 bits:4 names: deps:] = 0011
 
-    // Signal Const[id:5 bits:4 names: deps:] = 1111
+    // Signal Const[id:35 bits:4 names: deps:] = 1111
 
-    // Signal Const[id:6 bits:1 names: deps:] = 1
+    // Signal Const[id:36 bits:1 names: deps:] = 1
     |}];
   make_seq_code t |> print_ropes;
   [%expect
@@ -320,12 +310,12 @@ let%expect_test "Initial values, resets and clears of registers" =
   for _ = 0 to 1 do
     Cyclesim.cycle sim
   done;
-  Hardcaml_waveterm.Waveform.print waves ~wave_width:2;
+  Hardcaml_waveterm.Waveform.print waves ~wave_scale:2;
   [%expect
     {|
     ┌Signals────────┐┌Waves──────────────────────────────────────────────┐
-    │clock          ││┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──│
-    │               ││   └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  │
+    │clock          ││───┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐     │
+    │               ││   └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──   │
     │reset          ││            ┌─────┐                                │
     │               ││────────────┘     └─────────────────────────────   │
     │clear          ││                              ┌─────┐              │
@@ -386,13 +376,13 @@ let%expect_test "Initial values of memory" =
             ~alignment:Right
         ]
       waves
-      ~wave_width:2
+      ~wave_scale:2
   in
   test 8;
   [%expect
     {|
     ┌Signals────────┐┌Waves──────────────────────────────────────────────┐
-    │clock          ││┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──│
+    │clock          ││───┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──│
     │               ││   └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  │
     │               ││────────────┬──────────────────────────────────────│
     │write_address  ││ 0          │6                                     │
@@ -411,7 +401,7 @@ let%expect_test "Initial values of memory" =
   [%expect
     {|
     ┌Signals────────┐┌Waves──────────────────────────────────────────────┐
-    │clock          ││┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──│
+    │clock          ││───┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──│
     │               ││   └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  │
     │               ││────────────┬──────────────────────────────────────│
     │write_address  ││ 0          │6                                     │

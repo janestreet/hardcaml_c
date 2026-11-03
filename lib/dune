@@ -4,4 +4,4 @@
  (libraries core core_unix ctypes ctypes.foreign core_unix.filename_unix
    hardcaml jane_rope)
  (preprocess
-  (pps ppx_jane ppx_rope ppx_hardcaml)))
+  (pps ppx_jane ppx_rope -compare-require-explicit-locality ppx_hardcaml)))

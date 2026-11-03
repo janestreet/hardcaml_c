@@ -147,6 +147,7 @@ let create
       ~out_ports_after_clock_edge:(port_list t.output_signals_after)
       ~reset:(fun () -> reset t)
       ~clock_mode:`All_one_domain
+      ~clock_signal_uids:(Signal_graph.clock_signal_uids (Circuit.signal_graph circuit))
       ~clocks_aligned:(Fn.const true)
       ~cycle_multiple:1
       ~cycle_check:(fun () -> ())
